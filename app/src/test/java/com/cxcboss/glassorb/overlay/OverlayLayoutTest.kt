@@ -65,4 +65,25 @@ class OverlayLayoutTest {
         assertEquals(144, bounds.height)
         assertEquals(270, bounds.width)
     }
+
+    @Test
+    fun `anchor offsets stay consistent across portrait and landscape safe regions`() {
+        val geometry = GeometryConfig()
+        val portraitSafe = IntRect(left = 0, top = 72, right = 1080, bottom = 2280)
+        val landscapeSafe = IntRect(left = 96, top = 0, right = 2280, bottom = 1080)
+
+        val portraitAnchor = OverlayLayout.anchorOffsets(
+            expandedBounds = OverlayLayout.expandedBounds(geometry, portraitSafe, 3f),
+            collapsedBounds = OverlayLayout.collapsedBounds(geometry, portraitSafe, 3f),
+            density = 3f,
+        )
+        val landscapeAnchor = OverlayLayout.anchorOffsets(
+            expandedBounds = OverlayLayout.expandedBounds(geometry, landscapeSafe, 3f),
+            collapsedBounds = OverlayLayout.collapsedBounds(geometry, landscapeSafe, 3f),
+            density = 3f,
+        )
+
+        assertEquals(portraitAnchor.topDp, landscapeAnchor.topDp, 0.0001f)
+        assertEquals(portraitAnchor.centerXDp, landscapeAnchor.centerXDp, 0.0001f)
+    }
 }

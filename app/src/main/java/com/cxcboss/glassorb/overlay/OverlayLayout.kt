@@ -16,6 +16,8 @@ data class IntRect(
 }
 
 object OverlayLayout {
+    const val WINDOW_TOP_PADDING_DP = 2f
+
     fun collapsedBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {
         val width = max(geometry.capsuleWidthDp, MIN_TOUCH_DP).dpToPx(density)
         val height = max(geometry.capsuleHeightDp, MIN_TOUCH_DP).dpToPx(density)
@@ -38,6 +40,14 @@ object OverlayLayout {
             height / (geometry.capsuleHeightDp * density))
         val expandedFit = minOf(1f, minOf(width, height) / (expandedCanvasDp(geometry) * density))
         return capsuleFit + (expandedFit - capsuleFit) * morph.coerceIn(0f, 1f)
+    }
+
+    fun anchorOffsets(expandedBounds: IntRect, collapsedBounds: IntRect, density: Float): OverlayAnchor {
+        val collapsedCenterX = collapsedBounds.left + collapsedBounds.width * 0.5f
+        return OverlayAnchor(
+            topDp = WINDOW_TOP_PADDING_DP + (collapsedBounds.top - expandedBounds.top) / density,
+            centerXDp = (collapsedCenterX - expandedBounds.left) / density,
+        )
     }
 
     private fun placedBounds(

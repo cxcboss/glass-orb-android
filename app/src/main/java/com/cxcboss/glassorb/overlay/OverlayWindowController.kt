@@ -22,6 +22,7 @@ import com.cxcboss.glassorb.motion.AnalyticSpring
 import com.cxcboss.glassorb.motion.FrequencyBands
 import com.cxcboss.glassorb.render.OrbTextureView
 import com.cxcboss.glassorb.render.RenderSnapshot
+import com.cxcboss.glassorb.render.ShapeMetrics
 import kotlin.math.abs
 
 class OverlayWindowController(
@@ -40,6 +41,7 @@ class OverlayWindowController(
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
 
     private var config = OrbConfig.reference()
+    private val windowMotion = OverlayWindowMotion(config.motion)
     private var view: OrbTextureView? = null
     private var params: WindowManager.LayoutParams? = null
     private var framePosted = false
@@ -54,6 +56,7 @@ class OverlayWindowController(
     private var capsuleTopOffsetDp = 0f
     private var gestureOffsetDp = 0f
     private var trackingSwipe = false
+    private var downRawX = 0f
     private var downRawY = 0f
     private var cancelledByMultitouch = false
     private var velocityTracker: VelocityTracker? = null
@@ -86,6 +89,7 @@ class OverlayWindowController(
         wavePhase = 0f
         capsuleCenterOffsetDp = 0f
         capsuleTopOffsetDp = 0f
+        windowMotion.setCollapsedWindow()
         val textureView = OrbTextureView(context).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             onRenderFailure = { error -> onFatalError(error.message ?: "OpenGL 渲染初始化失败") }
@@ -133,6 +137,7 @@ class OverlayWindowController(
 
     fun updateConfig(config: OrbConfig) {
         this.config = config.normalized()
+        windowMotion.updateMotion(this.config.motion)
         val isExpanded = stateMachine.state !is OverlayState.Collapsed && stateMachine.state !is OverlayState.Hidden
         updateBounds(isExpanded)
         postFrame()
@@ -163,10 +168,16 @@ class OverlayWindowController(
         val elapsedSeconds = ((frameTimeNanos - originNanos) / 1_000_000_000.0).toFloat()
         val stateElapsedSeconds = ((frameTimeNanos - stateStartNanos) / 1_000_000_000.0).toFloat()
 
+        if (windowMotion.advanceFrame()) {
+            updateBounds(expanded = false)
+            gestureOffsetDp = 0f
+        }
+
         morphSpring.step(deltaSeconds)
         thinkingSpring.step(deltaSeconds)
         pressSpring.step(deltaSeconds)
         gestureReturnSpring.step(deltaSeconds)
+        windowMotion.step(deltaSeconds)
         if (!trackingSwipe) gestureOffsetDp = gestureReturnSpring.value
         bands = AmbientBands.smooth(bands, AmbientBands.targetsAt(elapsedSeconds))
         wavePhase = AmbientBands.advanceWavePhase(wavePhase, bands, deltaSeconds)
@@ -182,19 +193,24 @@ class OverlayWindowController(
                 morphSpring.snapTo(0f)
                 gestureOffsetDp = 0f
                 gestureReturnSpring.snapTo(0f)
-                updateBounds(expanded = false)
+                windowMotion.onCollapseSettled()
                 markStateStart(frameTimeNanos)
             }
 
             else -> Unit
         }
 
+        val springProgress = if (stateMachine.state is OverlayState.SwipeTracking) 1f else morphSpring.value
+        updateRenderAnchors(springProgress)
+
         textureView.submit(
             RenderSnapshot(
                 config = config,
                 state = stateMachine.state,
-                springProgress = morphSpring.value,
+                springProgress = springProgress,
                 gestureOffsetDp = gestureOffsetDp,
+                collapsePull = windowMotion.collapsePull,
+                deformation = windowMotion.deformation,
                 capsuleCenterOffsetDp = capsuleCenterOffsetDp,
                 capsuleTopOffsetDp = capsuleTopOffsetDp,
                 pressProgress = pressSpring.value,
@@ -224,15 +240,18 @@ class OverlayWindowController(
             MotionEvent.ACTION_DOWN -> {
                 cancelledByMultitouch = false
                 trackingSwipe = false
+                downRawX = event.rawX
                 downRawY = event.rawY
                 velocityTracker?.recycle()
                 velocityTracker = VelocityTracker.obtain().also { it.addMovement(event) }
                 pressSpring.target = 1f
+                windowMotion.cancelGesture()
                 return true
             }
 
             MotionEvent.ACTION_MOVE -> {
                 velocityTracker?.addMovement(event)
+                val deltaXPx = event.rawX - downRawX
                 val deltaPx = event.rawY - downRawY
                 val canSwipe = stateMachine.state == OverlayState.Wave ||
                     stateMachine.state == OverlayState.Thinking ||
@@ -243,8 +262,10 @@ class OverlayWindowController(
                         stateMachine.onSwipeStart()
                         markStateStart()
                     }
+                    val deltaXDp = (deltaXPx / density).coerceIn(-180f, 180f)
                     gestureOffsetDp = (deltaPx / density).coerceIn(-180f, 24f)
                     gestureReturnSpring.snapTo(gestureOffsetDp)
+                    windowMotion.onSwipeMove(deltaXDp = deltaXDp, deltaYDp = gestureOffsetDp)
                     stateMachine.onSwipe(gestureOffsetDp)
                 }
                 return true
@@ -255,12 +276,27 @@ class OverlayWindowController(
                 pressSpring.target = 0f
                 if (!cancelledByMultitouch && trackingSwipe) {
                     velocityTracker?.computeCurrentVelocity(1_000)
+                    val velocityXDp = (velocityTracker?.xVelocity ?: 0f) / density
                     val velocityDp = (velocityTracker?.yVelocity ?: 0f) / density
                     val decision = SwipeDecision.decide(gestureOffsetDp, velocityDp)
                     stateMachine.onSwipeEnd(decision)
+                    val release = windowMotion.release(
+                        decision = decision,
+                        velocityXDpPerSecond = velocityXDp,
+                        velocityYDpPerSecond = velocityDp,
+                    )
+                    morphSpring.configure(
+                        if (decision == SwipeDecision.Collapse) config.motion.closeResponse else config.motion.openResponse,
+                        if (decision == SwipeDecision.Collapse) config.motion.closeDamping else config.motion.openDamping,
+                    )
+                    morphSpring.seed(release.value, release.velocity, release.target)
                     gestureReturnSpring.configure(0.34f, 0.82f)
-                    gestureReturnSpring.target = 0f
-                    if (decision == SwipeDecision.Collapse) beginCollapse() else markStateStart()
+                    gestureReturnSpring.seed(gestureOffsetDp, velocityDp, 0f)
+                    if (decision == SwipeDecision.Collapse) {
+                        mainHandler.removeCallbacks(thinkingTimeout)
+                        thinkingSpring.target = 0f
+                    }
+                    markStateStart()
                 } else if (!cancelledByMultitouch) {
                     view.performClick()
                     handleTap()
@@ -287,17 +323,9 @@ class OverlayWindowController(
 
     private fun beginExpand() {
         stateMachine.onTap()
-        morphSpring.configure(config.motion.openResponse, config.motion.openDamping)
-        morphSpring.target = 1f
         updateBounds(expanded = true)
-        markStateStart()
-    }
-
-    private fun beginCollapse() {
-        mainHandler.removeCallbacks(thinkingTimeout)
-        thinkingSpring.target = 0f
-        morphSpring.configure(config.motion.closeResponse, config.motion.closeDamping)
-        morphSpring.target = 0f
+        morphSpring.configure(config.motion.openResponse, config.motion.openDamping)
+        morphSpring.seed(morphSpring.value, morphSpring.velocity, 1f)
         markStateStart()
     }
 
@@ -314,8 +342,9 @@ class OverlayWindowController(
         pressSpring.target = 0f
         if (trackingSwipe) {
             stateMachine.onSwipeEnd(SwipeDecision.Restore)
-            gestureReturnSpring.target = 0f
+            gestureReturnSpring.seed(gestureOffsetDp, 0f, 0f)
         }
+        windowMotion.cancelGesture()
         finishTouch()
     }
 
@@ -334,14 +363,16 @@ class OverlayWindowController(
             OverlayLayout.collapsedBounds(config.geometry, safeBounds(), density)
         }
         val collapsed = OverlayLayout.collapsedBounds(config.geometry, safeBounds(), density)
-        capsuleCenterOffsetDp = if (expanded) {
-            ((collapsed.left + collapsed.width * 0.5f) - (bounds.left + bounds.width * 0.5f)) / density
-        } else 0f
-        capsuleTopOffsetDp = if (expanded) (collapsed.top - bounds.top) / density else 0f
+        if (expanded) {
+            windowMotion.setExpandedWindow(OverlayLayout.anchorOffsets(bounds, collapsed, density))
+        } else {
+            windowMotion.setCollapsedWindow()
+        }
         layoutParams.width = bounds.width
         layoutParams.height = bounds.height
         layoutParams.x = bounds.left
         layoutParams.y = bounds.top
+        updateRenderAnchors(if (stateMachine.state is OverlayState.SwipeTracking) 1f else morphSpring.value)
         try {
             windowManager.updateViewLayout(textureView, layoutParams)
         } catch (error: Throwable) {
@@ -416,6 +447,25 @@ class OverlayWindowController(
 
     private fun markStateStart(timeNanos: Long = System.nanoTime()) {
         stateStartNanos = timeNanos
+    }
+
+    private fun updateRenderAnchors(springProgress: Float) {
+        val currentParams = params
+        if (!windowMotion.windowExpanded || currentParams == null) {
+            capsuleCenterOffsetDp = 0f
+            capsuleTopOffsetDp = 0f
+            return
+        }
+
+        val centerXDp = currentParams.width / (2f * density)
+        capsuleCenterOffsetDp = windowMotion.anchorCenterXDp - centerXDp
+        capsuleTopOffsetDp = ShapeMetrics.interpolate(
+            geometry = config.geometry,
+            anchorTopDp = windowMotion.anchorTopDp,
+            anchorCenterXDp = windowMotion.anchorCenterXDp,
+            morph = springProgress,
+            deformation = windowMotion.deformation.copy(topOffsetDp = 0f),
+        ).topDp - OverlayLayout.WINDOW_TOP_PADDING_DP
     }
 
     private fun isSettled(spring: AnalyticSpring, target: Float): Boolean =

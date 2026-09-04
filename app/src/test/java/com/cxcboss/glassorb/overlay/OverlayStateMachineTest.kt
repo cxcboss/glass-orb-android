@@ -39,4 +39,26 @@ class OverlayStateMachineTest {
         machine.onAnimationSettled()
         assertEquals(OverlayState.Collapsed, machine.state)
     }
+
+    @Test
+    fun `restore returns swipe tracking to the state that started it`() {
+        val machine = OverlayStateMachine(initialState = OverlayState.Thinking)
+
+        machine.onSwipeStart()
+        machine.onSwipe(12f)
+        machine.onSwipeEnd(SwipeDecision.Restore)
+
+        assertEquals(OverlayState.Thinking, machine.state)
+    }
+
+    @Test
+    fun `collapse decision transitions swipe tracking into collapsing before settle`() {
+        val machine = OverlayStateMachine(initialState = OverlayState.Wave)
+
+        machine.onSwipeStart()
+        machine.onSwipe(-72f)
+        machine.onSwipeEnd(SwipeDecision.Collapse)
+
+        assertEquals(OverlayState.Collapsing, machine.state)
+    }
 }
