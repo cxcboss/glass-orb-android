@@ -1,0 +1,38 @@
+package com.cxcboss.glassorb.render
+
+import com.cxcboss.glassorb.model.GeometryConfig
+import com.cxcboss.glassorb.motion.DragDeformation
+
+data class ShapeMetrics(
+    val topDp: Float,
+    val centerXDp: Float,
+    val centerYDp: Float,
+    val widthDp: Float,
+    val heightDp: Float,
+) {
+    companion object {
+        fun interpolate(
+            geometry: GeometryConfig,
+            anchorTopDp: Float,
+            anchorCenterXDp: Float,
+            morph: Float,
+            deformation: DragDeformation,
+        ): ShapeMetrics {
+            val clampedMorph = morph.coerceIn(0f, 1.08f)
+            val widthDp = lerp(geometry.capsuleWidthDp, geometry.orbDiameterDp, clampedMorph) * deformation.scaleX
+            val heightDp = lerp(geometry.capsuleHeightDp, geometry.orbDiameterDp, clampedMorph) * deformation.scaleY
+            val topDp = anchorTopDp + deformation.topOffsetDp
+            val centerXDp = anchorCenterXDp + deformation.offsetXDp
+            val centerYDp = topDp + heightDp / 2f
+            return ShapeMetrics(
+                topDp = topDp,
+                centerXDp = centerXDp,
+                centerYDp = centerYDp,
+                widthDp = widthDp,
+                heightDp = heightDp,
+            )
+        }
+
+        private fun lerp(start: Float, end: Float, fraction: Float): Float = start + (end - start) * fraction
+    }
+}

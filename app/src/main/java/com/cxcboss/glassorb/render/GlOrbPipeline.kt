@@ -60,7 +60,8 @@ internal class GlOrbPipeline(
         val effect = requireNotNull(effectTarget)
         val scene = requireNotNull(sceneTarget)
         val config = snapshot.config
-        val morph = softenNegative(snapshot.springProgress, config.motion.closeBounce)
+        val morph = softenNegative(snapshot.springProgress - snapshot.collapsePull.coerceIn(0f, 1f),
+            config.motion.closeBounce)
         val expanded = snapshot.state !is OverlayState.Collapsed && snapshot.state !is OverlayState.Hidden
         val density = displayDensity * OverlayLayout.renderScale(config.geometry, width, height, displayDensity, morph)
         val breathing = if (expanded) {
@@ -69,19 +70,36 @@ internal class GlOrbPipeline(
         } else {
             1f
         }
-        val swipeScale = (1f - (-snapshot.gestureOffsetDp / 64f).coerceIn(0f, 1f) * 0.07f)
+        val swipeScale = 1f - max((-snapshot.gestureOffsetDp / 64f).coerceIn(0f, 1f),
+            snapshot.collapsePull.coerceIn(0f, 1f)) * 0.07f
         val pressScale = 1f + (config.motion.pressScale - 1f) * snapshot.pressProgress.coerceIn(0f, 1f)
         val visualScale = breathing * swipeScale * pressScale
-        val shapeMorph = morph.coerceIn(-config.motion.closeBounce, 1.08f)
-        val shapeWidth = (config.geometry.capsuleWidthDp +
-            (config.geometry.orbDiameterDp - config.geometry.capsuleWidthDp) * shapeMorph) * density * visualScale
-        val shapeHeight = (config.geometry.capsuleHeightDp +
-            (config.geometry.orbDiameterDp - config.geometry.capsuleHeightDp) * shapeMorph) * density * visualScale
-        val topPad = if (snapshot.preview) (height - shapeHeight) * 0.5f else
-            2f * density + snapshot.capsuleTopOffsetDp * displayDensity * (1f - shapeMorph.coerceIn(0f, 1f))
-        val centerX = width * 0.5f + snapshot.capsuleCenterOffsetDp * displayDensity *
-            (1f - shapeMorph.coerceIn(0f, 1f))
-        val centerY = topPad + shapeHeight * 0.5f + snapshot.gestureOffsetDp * density
+        val centeredMorph = morph.coerceIn(0f, 1f)
+        val anchorCenterXDp = width / (2f * density) + snapshot.capsuleCenterOffsetDp * (1f - centeredMorph)
+        val previewMetrics = ShapeMetrics.interpolate(
+            geometry = config.geometry,
+            anchorTopDp = 0f,
+            anchorCenterXDp = anchorCenterXDp,
+            morph = morph,
+            deformation = snapshot.deformation,
+        )
+        val anchorTopDp = if (snapshot.preview) {
+            ((height / density) - previewMetrics.heightDp * visualScale) * 0.5f
+        } else {
+            2f + snapshot.capsuleTopOffsetDp
+        }
+        val metrics = ShapeMetrics.interpolate(
+            geometry = config.geometry,
+            anchorTopDp = anchorTopDp,
+            anchorCenterXDp = anchorCenterXDp,
+            morph = morph,
+            deformation = snapshot.deformation,
+        )
+        val shapeWidth = metrics.widthDp * density * visualScale
+        val shapeHeight = metrics.heightDp * density * visualScale
+        val topPad = metrics.topDp * density
+        val centerX = metrics.centerXDp * density
+        val centerY = topPad + shapeHeight * 0.5f
         val effectSize = config.geometry.orbDiameterDp * config.geometry.effectScale * density * visualScale
         val weights = RenderTransition.weights(snapshot.thinkingProgress)
         val orbVisibility = smoothstep(0.08f, 0.72f, morph)
@@ -150,7 +168,7 @@ internal class GlOrbPipeline(
         glassProgram.int("uSceneTexture", 0)
         glassProgram.vec2("uResolution", width.toFloat(), height.toFloat())
         glassProgram.vec2("uCanvasSize", width.toFloat(), height.toFloat())
-        glassProgram.vec2("uPanelOrigin", centerX - shapeWidth * 0.5f, centerY - shapeHeight * 0.5f)
+        glassProgram.vec2("uPanelOrigin", centerX - shapeWidth * 0.5f, topPad)
         glassProgram.vec2("uPanelSize", shapeWidth, shapeHeight)
         glassProgram.float("uMarginPx", 0f)
         glassProgram.float("uCornerRadius", minOf(shapeWidth, shapeHeight) * 0.5f)

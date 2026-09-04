@@ -1,6 +1,7 @@
 package com.cxcboss.glassorb.render
 
 import com.cxcboss.glassorb.model.OrbConfig
+import com.cxcboss.glassorb.motion.DragDeformation
 import com.cxcboss.glassorb.motion.FrequencyBands
 import com.cxcboss.glassorb.overlay.OverlayState
 
@@ -23,6 +24,8 @@ data class RenderSnapshot(
     val state: OverlayState,
     val springProgress: Float,
     val gestureOffsetDp: Float = 0f,
+    val collapsePull: Float = 0f,
+    val deformation: DragDeformation = DragDeformation(0f, 0f, 1f, 1f, 0f),
     val capsuleCenterOffsetDp: Float = 0f,
     val capsuleTopOffsetDp: Float = 0f,
     val pressProgress: Float = 0f,
