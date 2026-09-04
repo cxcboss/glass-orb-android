@@ -1,0 +1,9 @@
+/.gradle/
+/.idea/
+/local.properties
+**/build/
+/.omx/
+*.iml
+
+# The dist folder contains the intentional sideloadable APK and release notes.
+# Keep generated build outputs and machine-local configuration out of Git.

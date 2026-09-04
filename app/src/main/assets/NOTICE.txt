@@ -1,0 +1,11 @@
+灵动玻璃球是非官方、非商业学习演示。
+
+Android GLES shader 和动画行为参考：
+https://github.com/cxcboss/glass-voice-orb-study
+fixed reference commit: 3d7e98199b385358df6ddf65a9d20644754f22eb
+https://www.shadertoy.com/view/7XlXD4
+https://xiaolin.work/shaders/siri27/
+
+仅允许个人学习、教育、研究和其他非商业用途。未包含参考仓库中的个人背景资产。
+
+Apple 和 Siri 是 Apple Inc. 的商标；本演示与 Apple 无关，也未获得 Apple 认可。

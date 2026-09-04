@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">灵动玻璃球</string>
+    <string name="notification_channel_name">玻璃球悬浮层</string>
+    <string name="notification_channel_description">保持灵动胶囊在其他应用上方显示</string>
+    <string name="notification_title">灵动玻璃球正在运行</string>
+</resources>
