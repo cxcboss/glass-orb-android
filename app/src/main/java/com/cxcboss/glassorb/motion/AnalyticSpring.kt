@@ -30,6 +30,12 @@ class AnalyticSpring(
         target = newValue
     }
 
+    fun seed(newValue: Float, newVelocity: Float, newTarget: Float) {
+        value = newValue
+        velocity = newVelocity
+        target = newTarget
+    }
+
     fun step(deltaSeconds: Float): Float {
         val elapsed = max(deltaSeconds, 0f).toDouble()
         val offset = (value - target).toDouble()

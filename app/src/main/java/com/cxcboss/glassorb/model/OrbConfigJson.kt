@@ -59,6 +59,13 @@ object OrbConfigJson {
                 put("closeResponse", value.motion.closeResponse)
                 put("closeDamping", value.motion.closeDamping)
                 put("closeBounce", value.motion.closeBounce)
+                put("collapseRangeDp", value.motion.collapseRangeDp)
+                put("dragRangeDp", value.motion.dragRangeDp)
+                put("dragResistance", value.motion.dragResistance)
+                put("deformLimitDp", value.motion.deformLimitDp)
+                put("deformScaleDelta", value.motion.deformScaleDelta)
+                put("deformResponse", value.motion.deformResponse)
+                put("deformDamping", value.motion.deformDamping)
                 put("waveFadeDelayMs", value.motion.waveFadeDelayMs)
                 put("breathingAmplitude", value.motion.breathingAmplitude)
                 put("breathingSpeed", value.motion.breathingSpeed)
@@ -138,6 +145,13 @@ object OrbConfigJson {
                 closeResponse = motion.float("closeResponse", defaults.motion.closeResponse),
                 closeDamping = motion.float("closeDamping", defaults.motion.closeDamping),
                 closeBounce = motion.float("closeBounce", defaults.motion.closeBounce),
+                collapseRangeDp = motion.float("collapseRangeDp", defaults.motion.collapseRangeDp),
+                dragRangeDp = motion.float("dragRangeDp", defaults.motion.dragRangeDp),
+                dragResistance = motion.float("dragResistance", defaults.motion.dragResistance),
+                deformLimitDp = motion.float("deformLimitDp", defaults.motion.deformLimitDp),
+                deformScaleDelta = motion.float("deformScaleDelta", defaults.motion.deformScaleDelta),
+                deformResponse = motion.float("deformResponse", defaults.motion.deformResponse),
+                deformDamping = motion.float("deformDamping", defaults.motion.deformDamping),
                 waveFadeDelayMs = motion.int("waveFadeDelayMs", defaults.motion.waveFadeDelayMs),
                 breathingAmplitude = motion.float("breathingAmplitude", defaults.motion.breathingAmplitude),
                 breathingSpeed = motion.float("breathingSpeed", defaults.motion.breathingSpeed),

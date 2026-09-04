@@ -1,6 +1,7 @@
 package com.cxcboss.glassorb.motion
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AnalyticSpringTest {
@@ -29,5 +30,20 @@ class AnalyticSpringTest {
         spring.step(0.30f)
 
         assertEquals(-0.011824474f, spring.value, 0.0001f)
+    }
+
+    @Test
+    fun `seed replaces the value velocity and target atomically`() {
+        val slow = AnalyticSpring(value = 0f, response = 0.42f, dampingRatio = 0.72f)
+        slow.seed(newValue = 0.4f, newVelocity = 0f, newTarget = 1f)
+        slow.step(0.05f)
+
+        val fast = AnalyticSpring(value = 0f, response = 0.42f, dampingRatio = 0.72f)
+        fast.seed(newValue = 0.4f, newVelocity = 2f, newTarget = 1f)
+        fast.step(0.05f)
+
+        assertTrue(fast.value > slow.value)
+        assertEquals(1f, fast.target, 0f)
+        assertEquals(1f, slow.target, 0f)
     }
 }
