@@ -26,7 +26,7 @@ class ShapeMetricsTest {
             geometry = geometry,
             anchorTopDp = 20f,
             anchorCenterXDp = 64f,
-            morph = 0f,
+            morph = -0.12f,
             deformation = deformation,
         )
         val expanded = ShapeMetrics.interpolate(
@@ -86,7 +86,7 @@ class ShapeMetricsTest {
             geometry = geometry,
             anchorTopDp = 18f,
             anchorCenterXDp = 72f,
-            morph = 0f,
+            morph = -0.12f,
             deformation = deformation,
         )
         val aboveRange = ShapeMetrics.interpolate(

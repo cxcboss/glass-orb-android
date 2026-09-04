@@ -25,13 +25,12 @@ class OverlayWindowMotion(
     private var motion: MotionConfig = motion
     private var dragTargetXDp = 0f
     private var dragTargetYDp = 0f
+    private var tracking = false
 
     val dragXSpring = AnalyticSpring(0f, deformationResponse, deformationDamping)
     val dragYSpring = AnalyticSpring(0f, deformationResponse, deformationDamping)
 
     var windowExpanded = false
-        private set
-    var pendingCollapsedResizeFrames = 0
         private set
     var anchorTopDp = 0f
         private set
@@ -51,28 +50,27 @@ class OverlayWindowMotion(
 
     fun setExpandedWindow(anchor: OverlayAnchor) {
         windowExpanded = true
-        pendingCollapsedResizeFrames = 0
         anchorTopDp = anchor.topDp
         anchorCenterXDp = anchor.centerXDp
     }
 
     fun setCollapsedWindow() {
         windowExpanded = false
-        pendingCollapsedResizeFrames = 0
         anchorTopDp = 0f
         anchorCenterXDp = 0f
         clearGesture()
     }
 
     fun onSwipeMove(deltaXDp: Float, deltaYDp: Float) {
-        val collapseDeltaDp = (-deltaYDp).coerceAtLeast(0f)
+        tracking = true
+        val closingDirection = deltaYDp < 0f && abs(deltaYDp) > abs(deltaXDp)
+        val collapseDeltaDp = if (closingDirection) -deltaYDp else 0f
         collapsePull = ElasticDrag.collapseProgress(collapseDeltaDp, motion.collapseRangeDp)
 
-        val useDeformation = deltaYDp >= 0f || abs(deltaXDp) > abs(deltaYDp)
-        dragTargetXDp = if (useDeformation) deltaXDp else 0f
-        dragTargetYDp = if (useDeformation) deltaYDp.coerceAtLeast(0f) else 0f
-        dragXSpring.target = dragTargetXDp
-        dragYSpring.target = dragTargetYDp
+        dragTargetXDp = if (!closingDirection) ElasticDrag.rubberBand(deltaXDp, motion.dragRangeDp, motion.dragResistance) else 0f
+        dragTargetYDp = if (!closingDirection) ElasticDrag.rubberBand(deltaYDp, motion.dragRangeDp, motion.dragResistance) else 0f
+        dragXSpring.snapTo(dragTargetXDp)
+        dragYSpring.snapTo(dragTargetYDp)
         deformation = currentDeformation(dragTargetXDp, dragTargetYDp)
     }
 
@@ -82,10 +80,13 @@ class OverlayWindowMotion(
         velocityYDpPerSecond: Float,
     ): OverlaySpringSeed {
         val visualMorph = (1f - collapsePull).coerceIn(0f, 1f)
-        val morphVelocity = (-velocityYDpPerSecond / motion.collapseRangeDp).coerceIn(-12f, 12f)
+        val morphVelocity = if (collapsePull > 0f) {
+            (velocityYDpPerSecond * visualMorph / motion.collapseRangeDp).coerceIn(-8f, 8f)
+        } else 0f
+        tracking = false
 
-        dragXSpring.seed(dragTargetXDp, velocityXDpPerSecond, 0f)
-        dragYSpring.seed(dragTargetYDp, velocityYDpPerSecond.coerceAtLeast(0f), 0f)
+        dragXSpring.seed(dragTargetXDp, if (collapsePull > 0f) 0f else velocityXDpPerSecond.coerceIn(-80f, 80f), 0f)
+        dragYSpring.seed(dragTargetYDp, if (collapsePull > 0f) 0f else velocityYDpPerSecond.coerceIn(-80f, 80f), 0f)
         dragTargetXDp = 0f
         dragTargetYDp = 0f
         collapsePull = 0f
@@ -104,7 +105,6 @@ class OverlayWindowMotion(
         dragXSpring.snapTo(0f)
         dragYSpring.snapTo(0f)
         deformation = DragDeformation(0f, 0f, 1f, 1f, 0f)
-        pendingCollapsedResizeFrames = 1
         windowExpanded = true
     }
 
@@ -112,24 +112,15 @@ class OverlayWindowMotion(
         clearGesture()
     }
 
-    fun advanceFrame(): Boolean {
-        if (pendingCollapsedResizeFrames <= 0) return false
-        pendingCollapsedResizeFrames -= 1
-        if (pendingCollapsedResizeFrames > 0) return false
-
-        windowExpanded = false
-        anchorTopDp = 0f
-        anchorCenterXDp = 0f
-        return true
-    }
-
     fun step(deltaSeconds: Float) {
+        if (tracking) return
         dragXSpring.step(deltaSeconds)
         dragYSpring.step(deltaSeconds)
         deformation = currentDeformation(dragXSpring.value, dragYSpring.value)
     }
 
     private fun clearGesture() {
+        tracking = false
         dragTargetXDp = 0f
         dragTargetYDp = 0f
         collapsePull = 0f

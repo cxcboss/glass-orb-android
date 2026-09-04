@@ -15,6 +15,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,14 +37,22 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
-        }
         setContent {
             GlassOrbTheme {
+                val dark = isSystemInDarkTheme()
+                SideEffect {
+                    WindowCompat.getInsetsController(window, window.decorView).apply {
+                        isAppearanceLightStatusBars = !dark
+                        isAppearanceLightNavigationBars = !dark
+                    }
+                }
                 val config by viewModel.config.collectAsStateWithLifecycle()
                 val runtimeStatus by OverlayRuntime.status.collectAsStateWithLifecycle()
+                LaunchedEffect(runtimeStatus, dark) {
+                    if (runtimeStatus == com.cxcboss.glassorb.overlay.OverlayRuntimeStatus.Visible) {
+                        OrbOverlayService.setAppAppearance(this@MainActivity, active = true, dark = dark)
+                    }
+                }
                 var overlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(this)) }
                 val lifecycleOwner = LocalLifecycleOwner.current
                 val overlayPermissionLauncher = rememberLauncherForActivityResult(
@@ -57,10 +68,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                DisposableEffect(lifecycleOwner) {
+                DisposableEffect(lifecycleOwner, dark) {
                     val observer = LifecycleEventObserver { _, event ->
                         if (event == Lifecycle.Event.ON_RESUME) {
                             overlayPermission = Settings.canDrawOverlays(this@MainActivity)
+                            if (OverlayRuntime.status.value == com.cxcboss.glassorb.overlay.OverlayRuntimeStatus.Visible) {
+                                OrbOverlayService.setAppAppearance(this@MainActivity, active = true, dark = dark)
+                            }
+                        } else if (event == Lifecycle.Event.ON_PAUSE &&
+                            OverlayRuntime.status.value == com.cxcboss.glassorb.overlay.OverlayRuntimeStatus.Visible
+                        ) {
+                            OrbOverlayService.setAppAppearance(this@MainActivity, active = false, dark = dark)
                         }
                     }
                     lifecycleOwner.lifecycle.addObserver(observer)
@@ -95,7 +113,10 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             }
-                            runCatching { OrbOverlayService.start(this) }
+                            runCatching {
+                                OrbOverlayService.start(this)
+                                OrbOverlayService.setAppAppearance(this, active = true, dark = dark)
+                            }
                                 .onFailure { Toast.makeText(this, it.message ?: "无法启动悬浮层", Toast.LENGTH_LONG).show() }
                         }
                     },

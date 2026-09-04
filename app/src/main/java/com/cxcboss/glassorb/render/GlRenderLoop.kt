@@ -10,7 +10,6 @@ import android.opengl.EGLExt
 import android.opengl.EGLSurface
 import android.os.Handler
 import android.os.HandlerThread
-import android.os.SystemClock
 import android.util.Log
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -23,6 +22,7 @@ internal class GlRenderLoop(
     initialHeight: Int,
     private val density: Float,
     private val onFailure: (Throwable) -> Unit,
+    private val onPresented: (Long) -> Unit,
 ) {
     private val thread = HandlerThread("GlassOrb-GL").apply { start() }
     private val handler = Handler(thread.looper)
@@ -44,7 +44,10 @@ internal class GlRenderLoop(
             frameScheduled = false
             if (released || paused) return
             val snapshot = latestSnapshot.get() ?: return
-            val frameStarted = SystemClock.uptimeMillis()
+            // Resize and main-thread snapshots arrive independently. Never draw old
+            // coordinates into a newly sized buffer (or new coordinates into the old one).
+            if ((snapshot.viewportWidth > 0 && snapshot.viewportWidth != width) ||
+                (snapshot.viewportHeight > 0 && snapshot.viewportHeight != height)) return
             try {
                 pipeline?.render(snapshot, width, height)
                 if (!loggedFirstFrame) {
@@ -55,18 +58,15 @@ internal class GlRenderLoop(
                     val error = EGL14.eglGetError()
                     if (error == EGL14.EGL_CONTEXT_LOST) {
                         recreateContext()
+                        scheduleFrame(0)
+                        return
                     } else {
                         error("eglSwapBuffers failed: 0x${error.toString(16)}")
                     }
                 }
-                val fps = if (snapshot.state is com.cxcboss.glassorb.overlay.OverlayState.Collapsed) {
-                    snapshot.config.performance.collapsedFps
-                } else {
-                    snapshot.config.performance.expandedFps
-                }.coerceAtLeast(1)
-                // Rendering/swap already consumes part of the frame budget. Waiting a full
-                // interval after swap would turn a 60 Hz target into roughly 30 Hz.
-                scheduleFrame((1_000L / fps - (SystemClock.uptimeMillis() - frameStarted)).coerceAtLeast(0L))
+                onPresented(snapshot.presentationToken)
+                // The UI/overlay producer owns cadence. A second GL-side timer used to race
+                // each submitted vsync and render duplicate frames.
             } catch (error: Throwable) {
                 released = true
                 teardownEgl()

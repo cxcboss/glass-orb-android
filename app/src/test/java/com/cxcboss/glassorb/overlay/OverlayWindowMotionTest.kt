@@ -2,7 +2,6 @@ package com.cxcboss.glassorb.overlay
 
 import com.cxcboss.glassorb.model.MotionConfig
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -10,7 +9,7 @@ class OverlayWindowMotionTest {
     private val motionConfig = MotionConfig()
 
     @Test
-    fun `collapse settle keeps the expanded window alive for one more frame`() {
+    fun `collapse settle keeps the stable expanded canvas and clears deformation`() {
         val motion = OverlayWindowMotion(
             motion = motionConfig,
             deformationResponse = motionConfig.deformResponse,
@@ -23,15 +22,9 @@ class OverlayWindowMotionTest {
         motion.onCollapseSettled()
 
         assertTrue(motion.windowExpanded)
-        assertEquals(1, motion.pendingCollapsedResizeFrames)
-
-        val shouldResizeOnNextFrame = motion.advanceFrame()
-
-        assertTrue(shouldResizeOnNextFrame)
-        assertFalse(motion.windowExpanded)
-        assertEquals(0, motion.pendingCollapsedResizeFrames)
-        assertEquals(0f, motion.anchorTopDp, 0f)
-        assertEquals(0f, motion.anchorCenterXDp, 0f)
+        assertEquals(10f, motion.anchorTopDp, 0f)
+        assertEquals(64f, motion.anchorCenterXDp, 0f)
+        assertEquals(0f, motion.deformation.offsetXDp, 0f)
     }
 
     @Test
@@ -53,8 +46,24 @@ class OverlayWindowMotionTest {
 
         assertEquals(1f, release.target, 0f)
         assertTrue(release.value < 1f)
+        assertTrue(release.velocity < 0f)
         assertEquals(0f, motion.collapsePull, 0f)
-        assertEquals(0, motion.pendingCollapsedResizeFrames)
+    }
+
+    @Test
+    fun `horizontal drag stays tiny and does not collapse`() {
+        val motion = OverlayWindowMotion(motionConfig)
+        motion.onSwipeMove(300f, -10f)
+        val before = motion.deformation
+        motion.step(1f / 60f)
+        assertEquals(before, motion.deformation)
+        assertEquals(0f, motion.collapsePull, 0f)
+        assertTrue(before.offsetXDp <= 8f)
+        assertTrue(before.scaleX > 1f && before.scaleX <= 1.02f)
+        assertTrue(before.scaleY < 1f)
+        motion.release(SwipeDecision.Restore, 0f, 0f)
+        repeat(180) { motion.step(1f / 60f) }
+        assertEquals(0f, motion.deformation.offsetXDp, 0.001f)
     }
 
     @Test

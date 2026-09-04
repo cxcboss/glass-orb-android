@@ -16,13 +16,29 @@ data class IntRect(
 }
 
 object OverlayLayout {
-    const val WINDOW_TOP_PADDING_DP = 2f
+    const val WINDOW_TOP_PADDING_DP = 0f
 
     fun collapsedBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {
         val width = max(geometry.capsuleWidthDp, MIN_TOUCH_DP).dpToPx(density)
         val height = max(geometry.capsuleHeightDp, MIN_TOUCH_DP).dpToPx(density)
         return placedBounds(width, height, geometry, safeBoundsPx, density)
     }
+
+    fun capsuleTouchBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {
+        val scale = if (geometry.enlargedTouchArea) geometry.touchAreaScale else 1f
+        return placedBounds(
+            (geometry.capsuleWidthDp * scale).dpToPx(density),
+            (geometry.capsuleHeightDp * scale).dpToPx(density),
+            geometry, safeBoundsPx, density,
+        )
+    }
+
+    fun orbTouchBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect =
+        placedBounds(
+            geometry.orbDiameterDp.dpToPx(density),
+            geometry.orbDiameterDp.dpToPx(density),
+            geometry, safeBoundsPx, density,
+        )
 
     fun expandedBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {
         val visualSizeDp = expandedCanvasDp(geometry)

@@ -23,6 +23,8 @@ class OrbConfigTest {
         assertEquals(0.016f, config.motion.deformScaleDelta, 0f)
         assertEquals(0.24f, config.motion.deformResponse, 0f)
         assertEquals(0.68f, config.motion.deformDamping, 0f)
+        assertEquals(120, config.performance.collapsedFps)
+        assertEquals(120, config.performance.expandedFps)
     }
 
     @Test
@@ -45,14 +47,14 @@ class OrbConfigTest {
             ),
         ).normalized()
 
-        assertEquals(72f, config.geometry.capsuleWidthDp, 0f)
+        assertEquals(24f, config.geometry.capsuleWidthDp, 0f)
         assertEquals(64f, config.geometry.capsuleHeightDp, 0f)
         assertEquals(170f, config.geometry.orbDiameterDp, 0f)
         assertEquals(1f, config.glass.curvature, 0f)
         assertEquals(24f, config.motion.collapseRangeDp, 0f)
         assertEquals(160f, config.motion.dragRangeDp, 0f)
         assertEquals(0.62f, config.motion.dragResistance, 0f)
-        assertEquals(24f, config.motion.deformLimitDp, 0f)
+        assertEquals(8f, config.motion.deformLimitDp, 0f)
         assertEquals(0f, config.motion.deformScaleDelta, 0f)
         assertEquals(0.24f, config.motion.deformResponse, 0f)
         assertEquals(0.1f, config.motion.deformDamping, 0f)
@@ -67,7 +69,7 @@ class OrbConfigTest {
                 collapseRangeDp = 52f,
                 dragRangeDp = 72f,
                 dragResistance = 0.74f,
-                deformLimitDp = 10f,
+                deformLimitDp = 7f,
                 deformScaleDelta = 0.012f,
                 deformResponse = 0.31f,
                 deformDamping = 0.71f,

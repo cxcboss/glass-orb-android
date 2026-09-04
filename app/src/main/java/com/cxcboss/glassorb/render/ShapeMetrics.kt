@@ -18,7 +18,7 @@ data class ShapeMetrics(
             morph: Float,
             deformation: DragDeformation,
         ): ShapeMetrics {
-            val clampedMorph = morph.coerceIn(0f, 1.08f)
+            val clampedMorph = if (morph.isFinite()) morph.coerceIn(-0.12f, 1.08f) else 0f
             val widthDp = lerp(geometry.capsuleWidthDp, geometry.orbDiameterDp, clampedMorph) * deformation.scaleX
             val heightDp = lerp(geometry.capsuleHeightDp, geometry.orbDiameterDp, clampedMorph) * deformation.scaleY
             val topDp = anchorTopDp + deformation.topOffsetDp

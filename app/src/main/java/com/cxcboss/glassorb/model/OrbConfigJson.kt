@@ -16,6 +16,8 @@ object OrbConfigJson {
                 put("verticalOffsetDp", value.geometry.verticalOffsetDp)
                 put("horizontalOffsetDp", value.geometry.horizontalOffsetDp)
                 put("horizontalAnchor", value.geometry.horizontalAnchor.name)
+                put("enlargedTouchArea", value.geometry.enlargedTouchArea)
+                put("touchAreaScale", value.geometry.touchAreaScale)
             })
             put("glass", JSONObject().apply {
                 put("internalDepth", value.glass.internalDepth)
@@ -71,6 +73,8 @@ object OrbConfigJson {
                 put("breathingSpeed", value.motion.breathingSpeed)
                 put("pressScale", value.motion.pressScale)
                 put("thinkingDurationMs", value.motion.thinkingDurationMs)
+                put("autoCollapseEnabled", value.motion.autoCollapseEnabled)
+                put("autoCollapseSeconds", value.motion.autoCollapseSeconds)
             })
             put("performance", JSONObject().apply {
                 put("collapsedFps", value.performance.collapsedFps)
@@ -102,6 +106,8 @@ object OrbConfigJson {
                 verticalOffsetDp = geometry.float("verticalOffsetDp", defaults.geometry.verticalOffsetDp),
                 horizontalOffsetDp = geometry.float("horizontalOffsetDp", defaults.geometry.horizontalOffsetDp),
                 horizontalAnchor = geometry.enum("horizontalAnchor", defaults.geometry.horizontalAnchor),
+                enlargedTouchArea = geometry.boolean("enlargedTouchArea", defaults.geometry.enlargedTouchArea),
+                touchAreaScale = geometry.float("touchAreaScale", defaults.geometry.touchAreaScale),
             ),
             glass = defaults.glass.copy(
                 internalDepth = glass.float("internalDepth", defaults.glass.internalDepth),
@@ -157,6 +163,8 @@ object OrbConfigJson {
                 breathingSpeed = motion.float("breathingSpeed", defaults.motion.breathingSpeed),
                 pressScale = motion.float("pressScale", defaults.motion.pressScale),
                 thinkingDurationMs = motion.int("thinkingDurationMs", defaults.motion.thinkingDurationMs),
+                autoCollapseEnabled = motion.boolean("autoCollapseEnabled", defaults.motion.autoCollapseEnabled),
+                autoCollapseSeconds = motion.float("autoCollapseSeconds", defaults.motion.autoCollapseSeconds),
             ),
             performance = defaults.performance.copy(
                 collapsedFps = performance.int("collapsedFps", defaults.performance.collapsedFps),
@@ -172,6 +180,9 @@ private fun JSONObject?.float(name: String, fallback: Float): Float =
 
 private fun JSONObject?.int(name: String, fallback: Int): Int =
     if (this == null || !has(name)) fallback else optInt(name, fallback)
+
+private fun JSONObject?.boolean(name: String, fallback: Boolean): Boolean =
+    if (this == null || !has(name)) fallback else optBoolean(name, fallback)
 
 private inline fun <reified T : Enum<T>> JSONObject?.enum(name: String, fallback: T): T {
     val raw = if (this == null) null else optString(name, "")

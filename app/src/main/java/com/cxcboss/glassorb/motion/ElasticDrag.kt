@@ -46,14 +46,15 @@ object ElasticDrag {
             return DragDeformation(0f, 0f, 1f, 1f, 0f)
         }
 
-        val dragLimit = max(maxDragDp, 0.0001f)
-        val scaleDelta = max(maxScaleDelta, 0f)
+        if (maxDragDp <= 0f) return DragDeformation(0f, 0f, 1f, 1f, 0f)
+        val dragLimit = maxDragDp
+        val scaleDelta = maxScaleDelta.coerceIn(0f, 0.02f)
         val x = rubberBand(offsetXDp, dragLimit, DEFAULT_RESISTANCE)
         val y = rubberBand(offsetYDp, dragLimit, DEFAULT_RESISTANCE)
         val xRatio = (abs(x) / dragLimit).coerceIn(0f, 1f)
         val yRatio = (abs(y) / dragLimit).coerceIn(0f, 1f)
-        val scaleX = (1f - xRatio * scaleDelta).coerceIn(1f - scaleDelta, 1f)
-        val scaleY = (1f - yRatio * scaleDelta).coerceIn(1f - scaleDelta, 1f)
+        val scaleX = 1f + scaleDelta * (xRatio - yRatio * 0.55f)
+        val scaleY = 1f + scaleDelta * (yRatio - xRatio * 0.55f)
         val topOffsetDp = (-y * TOP_OFFSET_FACTOR).coerceIn(-TOP_OFFSET_LIMIT_DP, TOP_OFFSET_LIMIT_DP)
 
         return DragDeformation(

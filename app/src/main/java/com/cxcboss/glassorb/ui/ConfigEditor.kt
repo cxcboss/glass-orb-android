@@ -1,16 +1,25 @@
 package com.cxcboss.glassorb.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -18,19 +27,32 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.cxcboss.glassorb.data.ConfigGroup
 import com.cxcboss.glassorb.model.HorizontalAnchor
 import com.cxcboss.glassorb.model.OrbConfig
@@ -41,10 +63,11 @@ fun ConfigEditor(
     config: OrbConfig,
     onConfigChange: (OrbConfig) -> Unit,
     onResetGroup: (ConfigGroup) -> Unit,
+    section: SettingsSection = SettingsSection.Appearance,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            "精细调参",
+            if (section == SettingsSection.Motion) "手感与性能" else "细节与外观",
             modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
@@ -52,6 +75,7 @@ fun ConfigEditor(
 
         ConfigSection(
             title = "胶囊与位置",
+            visible = section == SettingsSection.Appearance,
             summary = "118×34 dp 胶囊、球体大小、安全区偏移",
             defaultExpanded = true,
             onReset = { onResetGroup(ConfigGroup.Geometry) },
@@ -72,7 +96,7 @@ fun ConfigEditor(
                     onConfigChange(config.copy(geometry = value.copy(horizontalAnchor = HorizontalAnchor.Right)))
                 }
             }
-            ParameterSlider("胶囊宽度", value.capsuleWidthDp, 72f..220f, "dp") {
+            ParameterSlider("胶囊宽度", value.capsuleWidthDp, 24f..220f, "dp") {
                 onConfigChange(config.copy(geometry = value.copy(capsuleWidthDp = it)))
             }
             ParameterSlider("胶囊高度", value.capsuleHeightDp, 24f..64f, "dp") {
@@ -93,10 +117,19 @@ fun ConfigEditor(
             ParameterSlider("水平微调", value.horizontalOffsetDp, -200f..200f, "dp") {
                 onConfigChange(config.copy(geometry = value.copy(horizontalOffsetDp = it)))
             }
+            ToggleRow("扩大胶囊触摸区域", value.enlargedTouchArea) {
+                onConfigChange(config.copy(geometry = value.copy(enlargedTouchArea = it)))
+            }
+            if (value.enlargedTouchArea) {
+                ParameterSlider("触摸区域倍率", value.touchAreaScale, 1f..3f, "×", decimals = 2) {
+                    onConfigChange(config.copy(geometry = value.copy(touchAreaScale = it)))
+                }
+            }
         }
 
         ConfigSection(
             title = "玻璃",
+            visible = section == SettingsSection.Appearance,
             summary = "内部扭曲、边缘高光、阴影与焦散",
             defaultExpanded = true,
             onReset = { onResetGroup(ConfigGroup.Glass) },
@@ -136,6 +169,7 @@ fun ConfigEditor(
 
         ConfigSection(
             title = "暗场",
+            visible = section == SettingsSection.Appearance,
             summary = "顶部纯黑，向下高斯渐隐",
             onReset = { onResetGroup(ConfigGroup.Container) },
         ) {
@@ -156,6 +190,7 @@ fun ConfigEditor(
 
         ConfigSection(
             title = "波形",
+            visible = section == SettingsSection.Appearance,
             summary = "四层光谱线、色散、填光与白色 Bloom",
             defaultExpanded = true,
             onReset = { onResetGroup(ConfigGroup.Wave) },
@@ -195,6 +230,7 @@ fun ConfigEditor(
 
         ConfigSection(
             title = "思考圆点",
+            visible = section == SettingsSection.Appearance,
             summary = "六组双点环与多色辉光",
             onReset = { onResetGroup(ConfigGroup.Dots) },
         ) {
@@ -215,10 +251,33 @@ fun ConfigEditor(
 
         ConfigSection(
             title = "动画",
+            visible = section == SettingsSection.Motion,
+            defaultExpanded = true,
             summary = "展开/收起弹簧、呼吸、按压与思考时长",
             onReset = { onResetGroup(ConfigGroup.Motion) },
         ) {
             val value = config.motion
+            ParameterSlider("收起跟手距离", value.collapseRangeDp, 24f..120f, "dp") {
+                onConfigChange(config.copy(motion = value.copy(collapseRangeDp = it)))
+            }
+            ParameterSlider("拖拽弹性范围", value.dragRangeDp, 16f..160f, "dp") {
+                onConfigChange(config.copy(motion = value.copy(dragRangeDp = it)))
+            }
+            ParameterSlider("拖拽响应系数", value.dragResistance, 0.05f..2f, decimals = 2) {
+                onConfigChange(config.copy(motion = value.copy(dragResistance = it)))
+            }
+            ParameterSlider("最大轻微位移", value.deformLimitDp, 0f..8f, "dp") {
+                onConfigChange(config.copy(motion = value.copy(deformLimitDp = it)))
+            }
+            ParameterSlider("形变幅度", value.deformScaleDelta, 0f..0.02f, decimals = 3) {
+                onConfigChange(config.copy(motion = value.copy(deformScaleDelta = it)))
+            }
+            ParameterSlider("形变回弹响应", value.deformResponse, 0.08f..1.5f, "s", decimals = 2) {
+                onConfigChange(config.copy(motion = value.copy(deformResponse = it)))
+            }
+            ParameterSlider("形变回弹阻尼", value.deformDamping, 0.1f..1.5f, decimals = 2) {
+                onConfigChange(config.copy(motion = value.copy(deformDamping = it)))
+            }
             ParameterSlider("展开响应", value.openResponse, 0.12f..1.2f, "s", decimals = 2) {
                 onConfigChange(config.copy(motion = value.copy(openResponse = it)))
             }
@@ -249,15 +308,24 @@ fun ConfigEditor(
             ParameterSlider("思考停留", value.thinkingDurationMs.toFloat(), 300f..5_000f, "ms", decimals = 0) {
                 onConfigChange(config.copy(motion = value.copy(thinkingDurationMs = it.toInt())))
             }
+            ToggleRow("自动收起玻璃球", value.autoCollapseEnabled) {
+                onConfigChange(config.copy(motion = value.copy(autoCollapseEnabled = it)))
+            }
+            if (value.autoCollapseEnabled) {
+                ParameterSlider("自动收起倒计时", value.autoCollapseSeconds, 1f..60f, "s", decimals = 1) {
+                    onConfigChange(config.copy(motion = value.copy(autoCollapseSeconds = it)))
+                }
+            }
         }
 
         ConfigSection(
             title = "性能",
+            visible = section == SettingsSection.Motion,
             summary = "胶囊/展开帧率与内部渲染比例",
             onReset = { onResetGroup(ConfigGroup.Performance) },
         ) {
             val value = config.performance
-            ParameterSlider("胶囊帧率", value.collapsedFps.toFloat(), 10f..60f, "fps", decimals = 0) {
+            ParameterSlider("胶囊帧率", value.collapsedFps.toFloat(), 24f..120f, "fps", decimals = 0) {
                 onConfigChange(config.copy(performance = value.copy(collapsedFps = it.toInt())))
             }
             ParameterSlider("展开帧率", value.expandedFps.toFloat(), 24f..120f, "fps", decimals = 0) {
@@ -274,35 +342,47 @@ fun ConfigEditor(
 private fun ConfigSection(
     title: String,
     summary: String,
-    defaultExpanded: Boolean = false,
+    visible: Boolean = true,
+    @Suppress("UNUSED_PARAMETER") defaultExpanded: Boolean = false,
     onReset: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(defaultExpanded) }
-    Card(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column {
-            Row(
-                Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-                    Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                TextButton(onClick = onReset) { Text("重置") }
-                Text(if (expanded) "−" else "+", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+    if (!visible) return
+    var expanded by remember { mutableStateOf(false) }
+    IosGlassCard(Modifier.fillMaxWidth().clickable { expanded = true }) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            AnimatedVisibility(expanded) {
-                Column(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    HorizontalDivider(Modifier.padding(bottom = 9.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f))
-                    content()
+            Text("›", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    if (expanded) {
+        Dialog(onDismissRequest = { expanded = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            var entered by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) { entered = true }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                AnimatedVisibility(entered, enter = slideInVertically(initialOffsetY = { it })) {
+                    androidx.compose.material3.Surface(
+                        Modifier.fillMaxWidth().fillMaxHeight(0.94f),
+                        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
+                        color = MaterialTheme.colorScheme.background,
+                        tonalElevation = 8.dp,
+                    ) {
+                        Column {
+                            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 10.dp, top = 10.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { expanded = false }) { Text("完成") }
+                                Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                                TextButton(onClick = onReset) { Text("全部复位") }
+                            }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
+                            Column(
+                                Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(20.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) { content() }
+                        }
+                    }
                 }
             }
         }
@@ -315,6 +395,7 @@ private fun AnchorChip(label: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 private fun ParameterSlider(
     label: String,
     value: Float,
@@ -331,17 +412,81 @@ private fun ParameterSlider(
             Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             Text(
                 buildString {
-                    append(String.format(Locale.US, ".${decimals}f", value))
+                    append(String.format(Locale.US, "%.${decimals}f", value))
                     if (suffix.isNotEmpty()) append(' ').append(suffix)
                 },
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
+            TextButton(onClick = { onValueChange(defaultValueFor(label)) }) { Text("复位") }
         }
+        val activeTrack = MaterialTheme.colorScheme.primary
+        val inactiveTrack = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val thumbScale by animateFloatAsState(if (pressed) 1.5f else 1f, label = "liquidThumb")
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
             onValueChange = onValueChange,
             valueRange = range,
+            interactionSource = interaction,
+            thumb = {
+                Box(Modifier.size(26.dp).graphicsLayer { scaleX = thumbScale; scaleY = thumbScale }
+                    .shadow(4.dp, CircleShape).background(Color.White.copy(alpha = if (pressed) .82f else .98f), CircleShape))
+            },
+            track = { slider ->
+                Canvas(Modifier.fillMaxWidth().height(26.dp)) {
+                    val y = size.height / 2f
+                    val fraction = ((slider.value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+                    drawLine(inactiveTrack, Offset(0f, y), Offset(size.width, y), 4.dp.toPx(), StrokeCap.Round)
+                    drawLine(activeTrack, Offset(0f, y), Offset(size.width * fraction, y), 4.dp.toPx(), StrokeCap.Round)
+                    val initial = ((defaultValueFor(label) - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
+                    drawCircle(Color.White.copy(alpha = .8f), 2.dp.toPx(), Offset(size.width * initial, y))
+                }
+            },
         )
+    }
+}
+
+@Composable
+private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+private fun defaultValueFor(label: String): Float {
+    val c = OrbConfig.reference()
+    return when (label) {
+        "胶囊宽度" -> c.geometry.capsuleWidthDp; "胶囊高度" -> c.geometry.capsuleHeightDp
+        "球体直径" -> c.geometry.orbDiameterDp; "外部效果余量" -> c.geometry.outerMarginDp
+        "效果画布比例" -> c.geometry.effectScale; "顶部偏移" -> c.geometry.verticalOffsetDp
+        "水平微调" -> c.geometry.horizontalOffsetDp; "触摸区域倍率" -> c.geometry.touchAreaScale
+        "内部深度" -> c.glass.internalDepth; "曲率" -> c.glass.curvature
+        "高光亮度" -> c.glass.highlightAmount; "高光宽度" -> c.glass.highlightWidth
+        "高光收束" -> c.glass.highlightCut; "阴影" -> c.glass.shadowAmount
+        "焦散" -> c.glass.causticAmount; "阴影偏移" -> c.glass.shadowOffset
+        "焦散偏移" -> c.glass.causticOffset; "光影柔度" -> c.glass.lightSoftness
+        "强度" -> c.container.strength; "纯黑区域" -> c.container.blackLevel
+        "渐隐跨度" -> c.container.fade; "高斯斜率" -> c.container.gaussian
+        "振幅" -> c.wave.amplitude; "尺度" -> c.wave.scale; "色散" -> c.wave.chromaticAberration
+        "线宽" -> c.wave.lineWidth; "亮度" -> c.wave.intensity; "填光" -> c.wave.bandFill
+        "填光厚度" -> c.wave.bandFillThickness; "柔化" -> c.wave.softness
+        "白色 Bloom" -> c.wave.whiteBloom; "色相偏移" -> c.wave.hueShiftDegrees
+        "环半径" -> c.dots.ringRadius; "点半径" -> c.dots.dotRadius
+        "辉光" -> c.dots.glow; "转速" -> c.dots.rotationSpeed
+        "收起跟手距离" -> c.motion.collapseRangeDp; "拖拽弹性范围" -> c.motion.dragRangeDp
+        "拖拽响应系数" -> c.motion.dragResistance; "最大轻微位移" -> c.motion.deformLimitDp
+        "形变幅度" -> c.motion.deformScaleDelta; "形变回弹响应" -> c.motion.deformResponse
+        "形变回弹阻尼" -> c.motion.deformDamping; "展开响应" -> c.motion.openResponse
+        "展开阻尼" -> c.motion.openDamping; "收起响应" -> c.motion.closeResponse
+        "收起阻尼" -> c.motion.closeDamping; "负向软回弹" -> c.motion.closeBounce
+        "波形渐入延迟" -> c.motion.waveFadeDelayMs.toFloat(); "呼吸幅度" -> c.motion.breathingAmplitude
+        "呼吸速度" -> c.motion.breathingSpeed; "点击放大" -> c.motion.pressScale
+        "思考停留" -> c.motion.thinkingDurationMs.toFloat(); "自动收起倒计时" -> c.motion.autoCollapseSeconds
+        "胶囊帧率" -> c.performance.collapsedFps.toFloat(); "展开帧率" -> c.performance.expandedFps.toFloat()
+        "渲染比例" -> c.performance.renderScale
+        else -> 0f
     }
 }

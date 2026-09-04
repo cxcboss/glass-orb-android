@@ -14,6 +14,9 @@ class OrbTextureView @JvmOverloads constructor(
     private var pendingSnapshot: RenderSnapshot? = null
     private var paused = false
     private var loggedFirstSubmit = false
+    @Volatile private var swappedToken = 0L
+    var presentedToken: Long = 0L
+        private set
 
     internal val submittedState get() = pendingSnapshot?.state
 
@@ -56,6 +59,7 @@ class OrbTextureView @JvmOverloads constructor(
                 Log.e(TAG, "GLES render loop failed", error)
                 post { onRenderFailure?.invoke(error) }
             },
+            onPresented = { token -> swappedToken = token },
         ).also { loop ->
             loop.setPaused(paused)
             pendingSnapshot?.let(loop::submit)
@@ -71,7 +75,9 @@ class OrbTextureView @JvmOverloads constructor(
         return true
     }
 
-    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
+    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
+        presentedToken = swappedToken
+    }
 
     override fun onDetachedFromWindow() {
         release()

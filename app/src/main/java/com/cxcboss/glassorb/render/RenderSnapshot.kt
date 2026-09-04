@@ -35,4 +35,8 @@ data class RenderSnapshot(
     val stateElapsedSeconds: Float = 0f,
     val bands: FrequencyBands = FrequencyBands(0.35f, 0.4f, 0.3f),
     val preview: Boolean = false,
+    val viewportWidth: Int = 0,
+    val viewportHeight: Int = 0,
+    val presentationToken: Long = 0L,
+    val capsuleOutline: Boolean = false,
 )

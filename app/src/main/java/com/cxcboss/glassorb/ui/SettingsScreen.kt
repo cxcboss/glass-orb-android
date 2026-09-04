@@ -60,6 +60,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.key
 import com.cxcboss.glassorb.data.ConfigGroup
 import com.cxcboss.glassorb.data.ConfigPreset
 import com.cxcboss.glassorb.model.OrbConfig
@@ -91,33 +94,41 @@ fun SettingsScreen(
     val context = LocalContext.current
     var importDialogVisible by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
+    var section by rememberSaveable { mutableStateOf(SettingsSection.Overview) }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
         contentColor = MaterialTheme.colorScheme.onBackground,
     ) {
+        Box(Modifier.fillMaxSize()) {
+        key(section) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 18.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 110.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
-                    text = "灵动玻璃球",
+                    text = if (section == SettingsSection.Overview) "灵动玻璃球" else section.label,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = "原生 GLES 悬浮动效实验室",
+                    text = when (section) {
+                        SettingsSection.Overview -> "让一点灵动，留在屏幕上。"
+                        SettingsSection.Appearance -> "调整大小、位置和光影细节"
+                        SettingsSection.Motion -> "找到恰到好处的弹性与回弹"
+                    },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
+        if (section == SettingsSection.Overview) {
         item {
             OverlayControlCard(
                 runtimeStatus = runtimeStatus,
@@ -142,12 +153,33 @@ fun SettingsScreen(
                 onImport = { importDialogVisible = true },
             )
         }
+        }
+        if (section != SettingsSection.Overview) {
         item {
             ConfigEditor(
                 config = config,
                 onConfigChange = onConfigChange,
                 onResetGroup = onResetGroup,
+                section = section,
             )
+        }
+        }
+        if (section == SettingsSection.Motion) {
+        item {
+            IosGlassCard {
+                Column(Modifier.padding(16.dp)) {
+                    Text("参数管理", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        TextButton(onClick = {
+                            context.getSystemService(ClipboardManager::class.java)
+                                .setPrimaryClip(ClipData.newPlainText("灵动玻璃球参数", onExportJson()))
+                            Toast.makeText(context, "JSON 已复制", Toast.LENGTH_SHORT).show()
+                        }) { Text("复制 JSON") }
+                        TextButton(onClick = { importDialogVisible = true }) { Text("导入 JSON") }
+                        TextButton(onClick = onResetAll) { Text("全部恢复", color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
         }
         item { LimitsCard() }
         item {
@@ -159,7 +191,12 @@ fun SettingsScreen(
                 },
             )
         }
+        }
             item { Spacer(Modifier.height(12.dp)) }
+        }
+        }
+        IosFloatingTabBar(section, { section = it }, Modifier.align(Alignment.BottomCenter)
+            .navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp))
         }
     }
 
@@ -213,10 +250,7 @@ private fun OverlayControlCard(
         OverlayRuntimeStatus.PermissionRequired -> "需要权限" to MaterialTheme.colorScheme.error
         is OverlayRuntimeStatus.Error -> "渲染异常" to MaterialTheme.colorScheme.error
     }
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.62f)),
-        shape = RoundedCornerShape(22.dp),
-    ) {
+    IosGlassCard {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -262,10 +296,7 @@ private fun OverlayControlCard(
 private fun OrbPreviewCard(config: OrbConfig) {
     var thinking by remember { mutableStateOf(false) }
     var backdrop by remember { mutableStateOf(0) }
-    Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0D1019)),
-    ) {
+    IosGlassCard {
         Column {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
@@ -273,7 +304,7 @@ private fun OrbPreviewCard(config: OrbConfig) {
             ) {
                 Column(Modifier.weight(1f)) {
                     Text("实时预览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("与悬浮层共用 GLES 渲染器", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("光影与参数实时呈现", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 FilterChip(
                     selected = thinking,
@@ -348,9 +379,12 @@ private fun OrbPreview(config: OrbConfig, thinking: Boolean, modifier: Modifier 
         var origin = 0L
         var bands = FrequencyBands(0.35f, 0.4f, 0.3f)
         var previousTime = 0f
+        var previousSubmitNanos = 0L
         var wavePhase = 0f
         while (isActive) {
             withFrameNanos { frameTime ->
+                if (previousSubmitNanos != 0L && frameTime - previousSubmitNanos < 16_000_000L) return@withFrameNanos
+                previousSubmitNanos = frameTime
                 if (origin == 0L) origin = frameTime
                 val time = ((frameTime - origin) / 1_000_000_000.0).toFloat()
                 bands = AmbientBands.smooth(bands, AmbientBands.targetsAt(time))
@@ -413,7 +447,7 @@ private fun PresetCard(
     onExport: () -> Unit,
     onImport: () -> Unit,
 ) {
-    Card(shape = RoundedCornerShape(20.dp)) {
+    IosGlassCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("预设与参数", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Row(

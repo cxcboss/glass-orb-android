@@ -32,6 +32,7 @@ uniform float uCausticOffsetY;
 uniform float uProjectionSoftness;
 
 uniform float uGlassVisibility;
+uniform float uCapsuleOutline;
 out vec4 outColor;
 
 float saturate(float x) {
@@ -169,8 +170,9 @@ void main() {
     float shapeAlpha = 1.0 - smoothstep(-1.0, 1.0, d);
     // A collapsed Dynamic Island is ink black: no wave, tint, rim or projection.
     if (uGlassVisibility <= 0.0001) {
-        outColor = vec4(0.0, 0.0, 0.0, shapeAlpha);
-        return;
+		float rim = (1.0 - smoothstep(0.0, 2.0, abs(d))) * uCapsuleOutline * 0.42;
+		outColor = vec4(vec3(rim), max(shapeAlpha, rim));
+		return;
     }
     vec2 grad = shapeGradient(p, halfSize, uCornerRadius, uGradRadialMix);
     vec2 uv = clamp(refractedUv(pixel / uCanvasSize, d, grad), 0.0, 1.0);

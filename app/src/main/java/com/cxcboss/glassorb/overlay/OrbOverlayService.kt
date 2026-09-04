@@ -80,6 +80,11 @@ class OrbOverlayService : Service() {
                     refreshNotification()
                 }
             }
+
+            ACTION_APP_APPEARANCE -> controller.setAppAppearance(
+                active = intent?.getBooleanExtra(EXTRA_APP_ACTIVE, false) == true,
+                dark = intent?.getBooleanExtra(EXTRA_DARK_MODE, false) == true,
+            )
         }
         return START_NOT_STICKY
     }
@@ -212,6 +217,9 @@ class OrbOverlayService : Service() {
         const val ACTION_SHOW = "com.cxcboss.glassorb.action.SHOW"
         const val ACTION_HIDE = "com.cxcboss.glassorb.action.HIDE"
         const val ACTION_STOP = "com.cxcboss.glassorb.action.STOP"
+        const val ACTION_APP_APPEARANCE = "com.cxcboss.glassorb.action.APP_APPEARANCE"
+        private const val EXTRA_APP_ACTIVE = "app_active"
+        private const val EXTRA_DARK_MODE = "dark_mode"
 
         private const val CHANNEL_ID = "glass_orb_overlay"
         private const val NOTIFICATION_ID = 27
@@ -236,6 +244,15 @@ class OrbOverlayService : Service() {
 
         fun stop(context: Context) {
             context.startService(Intent(context, OrbOverlayService::class.java).setAction(ACTION_STOP))
+        }
+
+        fun setAppAppearance(context: Context, active: Boolean, dark: Boolean) {
+            context.startService(
+                Intent(context, OrbOverlayService::class.java)
+                    .setAction(ACTION_APP_APPEARANCE)
+                    .putExtra(EXTRA_APP_ACTIVE, active)
+                    .putExtra(EXTRA_DARK_MODE, dark),
+            )
         }
     }
 }

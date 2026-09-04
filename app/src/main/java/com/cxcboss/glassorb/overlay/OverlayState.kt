@@ -62,4 +62,8 @@ class OverlayStateMachine(initialState: OverlayState = OverlayState.Collapsed) {
     fun showCollapsed() {
         state = OverlayState.Collapsed
     }
+
+    fun beginAutomaticCollapse() {
+        if (state == OverlayState.Wave || state == OverlayState.Thinking) state = OverlayState.Collapsing
+    }
 }

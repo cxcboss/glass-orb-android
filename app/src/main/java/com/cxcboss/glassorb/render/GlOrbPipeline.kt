@@ -70,12 +70,11 @@ internal class GlOrbPipeline(
         } else {
             1f
         }
-        val swipeScale = 1f - max((-snapshot.gestureOffsetDp / 64f).coerceIn(0f, 1f),
-            snapshot.collapsePull.coerceIn(0f, 1f)) * 0.07f
         val pressScale = 1f + (config.motion.pressScale - 1f) * snapshot.pressProgress.coerceIn(0f, 1f)
-        val visualScale = breathing * swipeScale * pressScale
+        val visualScale = breathing * pressScale
         val centeredMorph = morph.coerceIn(0f, 1f)
-        val anchorCenterXDp = width / (2f * density) + snapshot.capsuleCenterOffsetDp * (1f - centeredMorph)
+        val anchorCenterXDp = width / (2f * density) +
+            snapshot.capsuleCenterOffsetDp * displayDensity / density * (1f - centeredMorph)
         val previewMetrics = ShapeMetrics.interpolate(
             geometry = config.geometry,
             anchorTopDp = 0f,
@@ -86,7 +85,7 @@ internal class GlOrbPipeline(
         val anchorTopDp = if (snapshot.preview) {
             ((height / density) - previewMetrics.heightDp * visualScale) * 0.5f
         } else {
-            2f + snapshot.capsuleTopOffsetDp
+            (2f + snapshot.capsuleTopOffsetDp) * displayDensity / density
         }
         val metrics = ShapeMetrics.interpolate(
             geometry = config.geometry,
@@ -173,6 +172,7 @@ internal class GlOrbPipeline(
         glassProgram.float("uMarginPx", 0f)
         glassProgram.float("uCornerRadius", minOf(shapeWidth, shapeHeight) * 0.5f)
         glassProgram.float("uGlassVisibility", orbVisibility)
+        glassProgram.float("uCapsuleOutline", if (snapshot.capsuleOutline) 1f else 0f)
         glassProgram.float("uHeight", config.glass.internalDepth * density)
         glassProgram.float("uCurvature", config.glass.curvature)
         glassProgram.float("uRefractAmount", -56f * density)

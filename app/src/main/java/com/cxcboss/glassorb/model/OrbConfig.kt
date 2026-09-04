@@ -17,6 +17,8 @@ data class GeometryConfig(
     val verticalOffsetDp: Float = 8f,
     val horizontalOffsetDp: Float = 0f,
     val horizontalAnchor: HorizontalAnchor = HorizontalAnchor.Center,
+    val enlargedTouchArea: Boolean = false,
+    val touchAreaScale: Float = 1.35f,
 )
 
 data class GlassConfig(
@@ -60,11 +62,11 @@ data class DotsConfig(
 )
 
 data class MotionConfig(
-    val openResponse: Float = 0.42f,
-    val openDamping: Float = 0.72f,
-    val closeResponse: Float = 0.30f,
-    val closeDamping: Float = 0.78f,
-    val closeBounce: Float = 0.032f,
+    val openResponse: Float = 0.36f,
+    val openDamping: Float = 0.84f,
+    val closeResponse: Float = 0.26f,
+    val closeDamping: Float = 0.76f,
+    val closeBounce: Float = 0.045f,
     val collapseRangeDp: Float = 48f,
     val dragRangeDp: Float = 64f,
     val dragResistance: Float = 0.62f,
@@ -77,11 +79,13 @@ data class MotionConfig(
     val breathingSpeed: Float = 1.65f,
     val pressScale: Float = 1.018f,
     val thinkingDurationMs: Int = 1_200,
+    val autoCollapseEnabled: Boolean = false,
+    val autoCollapseSeconds: Float = 8f,
 )
 
 data class PerformanceConfig(
-    val collapsedFps: Int = 24,
-    val expandedFps: Int = 60,
+    val collapsedFps: Int = 120,
+    val expandedFps: Int = 120,
     val renderScale: Float = 1f,
 )
 
@@ -100,13 +104,14 @@ data class OrbConfig(
         return copy(
             schemaVersion = CURRENT_SCHEMA_VERSION,
             geometry = geometry.copy(
-                capsuleWidthDp = geometry.capsuleWidthDp.safeRange(72f, 220f, defaults.geometry.capsuleWidthDp),
+                capsuleWidthDp = geometry.capsuleWidthDp.safeRange(24f, 220f, defaults.geometry.capsuleWidthDp),
                 capsuleHeightDp = geometry.capsuleHeightDp.safeRange(24f, 64f, defaults.geometry.capsuleHeightDp),
                 orbDiameterDp = geometry.orbDiameterDp.safeRange(88f, 220f, defaults.geometry.orbDiameterDp),
                 outerMarginDp = geometry.outerMarginDp.safeRange(8f, 48f, defaults.geometry.outerMarginDp),
                 effectScale = geometry.effectScale.safeRange(0.9f, 1.5f, defaults.geometry.effectScale),
-                verticalOffsetDp = geometry.verticalOffsetDp.safeRange(0f, 240f, defaults.geometry.verticalOffsetDp),
+                verticalOffsetDp = geometry.verticalOffsetDp.safeRange(-64f, 240f, defaults.geometry.verticalOffsetDp),
                 horizontalOffsetDp = geometry.horizontalOffsetDp.safeRange(-600f, 600f, defaults.geometry.horizontalOffsetDp),
+                touchAreaScale = geometry.touchAreaScale.safeRange(1f, 3f, defaults.geometry.touchAreaScale),
             ),
             glass = glass.copy(
                 internalDepth = glass.internalDepth.safeRange(0f, 40f, defaults.glass.internalDepth),
@@ -153,8 +158,8 @@ data class OrbConfig(
                 collapseRangeDp = motion.collapseRangeDp.safeRange(24f, 120f, defaults.motion.collapseRangeDp),
                 dragRangeDp = motion.dragRangeDp.safeRange(16f, 160f, defaults.motion.dragRangeDp),
                 dragResistance = motion.dragResistance.safeRange(0.05f, 2f, defaults.motion.dragResistance),
-                deformLimitDp = motion.deformLimitDp.safeRange(0f, 24f, defaults.motion.deformLimitDp),
-                deformScaleDelta = motion.deformScaleDelta.safeRange(0f, 0.08f, defaults.motion.deformScaleDelta),
+                deformLimitDp = motion.deformLimitDp.safeRange(0f, 8f, defaults.motion.deformLimitDp),
+                deformScaleDelta = motion.deformScaleDelta.safeRange(0f, 0.02f, defaults.motion.deformScaleDelta),
                 deformResponse = motion.deformResponse.safeRange(0.08f, 1.5f, defaults.motion.deformResponse),
                 deformDamping = motion.deformDamping.safeRange(0.1f, 1.5f, defaults.motion.deformDamping),
                 waveFadeDelayMs = motion.waveFadeDelayMs.coerceIn(0, 500),
@@ -162,10 +167,11 @@ data class OrbConfig(
                 breathingSpeed = motion.breathingSpeed.safeRange(0f, 4f, defaults.motion.breathingSpeed),
                 pressScale = motion.pressScale.safeRange(1f, 1.08f, defaults.motion.pressScale),
                 thinkingDurationMs = motion.thinkingDurationMs.coerceIn(300, 5_000),
+                autoCollapseSeconds = motion.autoCollapseSeconds.safeRange(1f, 60f, defaults.motion.autoCollapseSeconds),
             ),
             performance = performance.copy(
-                collapsedFps = performance.collapsedFps.coerceIn(10, 60),
-                expandedFps = max(performance.collapsedFps, performance.expandedFps.coerceIn(24, 120)),
+                collapsedFps = performance.collapsedFps.coerceIn(24, 120),
+                expandedFps = max(performance.collapsedFps.coerceIn(24, 120), performance.expandedFps.coerceIn(24, 120)),
                 renderScale = performance.renderScale.safeRange(0.5f, 1.25f, defaults.performance.renderScale),
             ),
         )
