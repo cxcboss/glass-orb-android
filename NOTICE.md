@@ -25,3 +25,4 @@ Settings controls and floating navigation interaction are adapted from design an
 - Licensed under the Apache License, Version 2.0
 
 The compatible Compose implementation in this demo does not bundle the reference repository or its sample application.
+It links the published `io.github.kyant0:backdrop:2.0.1` library under Apache-2.0.

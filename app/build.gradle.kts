@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace = "com.cxcboss.glassorb"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.cxcboss.glassorb"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2.0-demo"
+        versionCode = 4
+        versionName = "1.3.0-demo"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -44,6 +44,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("androidx.datastore:datastore-preferences:1.1.7")
+    implementation("io.github.kyant0:backdrop:2.0.1")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")

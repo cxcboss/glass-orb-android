@@ -73,6 +73,9 @@ import com.cxcboss.glassorb.overlay.OverlayState
 import com.cxcboss.glassorb.render.OrbTextureView
 import com.cxcboss.glassorb.render.RenderSnapshot
 import kotlinx.coroutines.isActive
+import androidx.compose.runtime.CompositionLocalProvider
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
 
 @Composable
 fun SettingsScreen(
@@ -96,11 +99,10 @@ fun SettingsScreen(
     var importText by remember { mutableStateOf("") }
     var section by rememberSaveable { mutableStateOf(SettingsSection.Overview) }
 
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-    ) {
+    val liquidBackdrop = rememberLayerBackdrop()
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).layerBackdrop(liquidBackdrop))
+        CompositionLocalProvider(LocalGlassBackdrop provides liquidBackdrop) {
         Box(Modifier.fillMaxSize()) {
         key(section) {
         LazyColumn(
@@ -170,13 +172,13 @@ fun SettingsScreen(
                 Column(Modifier.padding(16.dp)) {
                     Text("参数管理", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(onClick = {
+                        LiquidGlassTextButton(onClick = {
                             context.getSystemService(ClipboardManager::class.java)
                                 .setPrimaryClip(ClipData.newPlainText("灵动玻璃球参数", onExportJson()))
                             Toast.makeText(context, "JSON 已复制", Toast.LENGTH_SHORT).show()
                         }) { Text("复制 JSON") }
-                        TextButton(onClick = { importDialogVisible = true }) { Text("导入 JSON") }
-                        TextButton(onClick = onResetAll) { Text("全部恢复", color = MaterialTheme.colorScheme.error) }
+                        LiquidGlassTextButton(onClick = { importDialogVisible = true }) { Text("导入 JSON") }
+                        LiquidGlassTextButton(onClick = onResetAll) { Text("全部恢复", color = MaterialTheme.colorScheme.error) }
                     }
                 }
             }
@@ -198,6 +200,7 @@ fun SettingsScreen(
         IosFloatingTabBar(section, { section = it }, Modifier.align(Alignment.BottomCenter)
             .navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp))
         }
+    }
     }
 
     if (importDialogVisible) {
@@ -228,7 +231,7 @@ fun SettingsScreen(
                     enabled = importText.isNotBlank(),
                 ) { Text("导入") }
             },
-            dismissButton = { TextButton(onClick = { importDialogVisible = false }) { Text("取消") } },
+            dismissButton = { LiquidGlassTextButton(onClick = { importDialogVisible = false }) { Text("取消") } },
         )
     }
 }
@@ -273,20 +276,20 @@ private fun OverlayControlCard(
                 Text(runtimeStatus.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             if (!overlayPermission) {
-                Button(onClick = onRequestOverlayPermission, modifier = Modifier.fillMaxWidth()) {
-                    Text("授权并返回")
+                LiquidGlassButton(onClick = onRequestOverlayPermission, modifier = Modifier.fillMaxWidth()) {
+                    Text("授权并返回", color = Color.White)
                 }
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(
+                    LiquidGlassButton(
                         onClick = if (runtimeStatus == OverlayRuntimeStatus.Hidden) onShowOverlay else onStartOverlay,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text(if (runtimeStatus == OverlayRuntimeStatus.Hidden) "显示" else "启动悬浮层")
+                        Text(if (runtimeStatus == OverlayRuntimeStatus.Hidden) "显示" else "启动悬浮层", color = Color.White)
                     }
-                    OutlinedButton(onClick = onHideOverlay, modifier = Modifier.weight(1f)) { Text("隐藏") }
+                    LiquidGlassButton(onClick = onHideOverlay, modifier = Modifier.weight(1f), tint = MaterialTheme.colorScheme.surfaceVariant) { Text("隐藏") }
                 }
-                TextButton(onClick = onStopOverlay, modifier = Modifier.align(Alignment.End)) { Text("停止常驻服务") }
+                LiquidGlassTextButton(onClick = onStopOverlay, modifier = Modifier.align(Alignment.End)) { Text("停止常驻服务") }
             }
         }
     }
@@ -454,15 +457,15 @@ private fun PresetCard(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(onClick = { onPreset(ConfigPreset.Reference) }) { Text("参考原版") }
-                OutlinedButton(onClick = { onPreset(ConfigPreset.Soft) }) { Text("柔和") }
-                OutlinedButton(onClick = { onPreset(ConfigPreset.Bright) }) { Text("明亮") }
+                LiquidGlassButton(onClick = { onPreset(ConfigPreset.Reference) }, tint = MaterialTheme.colorScheme.surfaceVariant) { Text("参考原版") }
+                LiquidGlassButton(onClick = { onPreset(ConfigPreset.Soft) }, tint = MaterialTheme.colorScheme.surfaceVariant) { Text("柔和") }
+                LiquidGlassButton(onClick = { onPreset(ConfigPreset.Bright) }, tint = MaterialTheme.colorScheme.surfaceVariant) { Text("明亮") }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onExport, modifier = Modifier.weight(1f)) { Text("复制 JSON") }
-                TextButton(onClick = onImport, modifier = Modifier.weight(1f)) { Text("导入 JSON") }
-                TextButton(onClick = onResetAll, modifier = Modifier.weight(1f)) { Text("全部恢复") }
+                LiquidGlassTextButton(onClick = onExport, modifier = Modifier.weight(1f)) { Text("复制 JSON") }
+                LiquidGlassTextButton(onClick = onImport, modifier = Modifier.weight(1f)) { Text("导入 JSON") }
+                LiquidGlassTextButton(onClick = onResetAll, modifier = Modifier.weight(1f)) { Text("全部恢复") }
             }
         }
     }
@@ -491,6 +494,6 @@ private fun AttributionCard(onOpenSource: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = onOpenSource, contentPadding = PaddingValues(0.dp)) { Text("查看参考仓库与来源说明") }
+        LiquidGlassTextButton(onClick = onOpenSource, contentPadding = PaddingValues(0.dp)) { Text("查看参考仓库与来源说明") }
     }
 }

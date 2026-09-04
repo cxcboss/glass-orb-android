@@ -2,7 +2,12 @@
 
 纯黑灵动岛胶囊，点击舒缓展开为透明玻璃球。原生 Kotlin / Compose 设置页，TextureView / EGL / OpenGL ES 3.0 悬浮渲染，无 WebView。
 
-### 1.2.0-demo 更新
+### 1.3.0-demo 更新
+
+- 顶部位置使用物理显示坐标，并关闭系统窗口 Insets 自动避让；`0dp` 可进入状态栏／刘海所在的真实屏幕顶边区域。
+- 拖动触摸区域倍率时，悬浮层以红色边框实时显示实际触摸窗口。
+- 二级设置页向下退出；可拖动顶部把手下滑关闭，未超过阈值时弹回。
+- 直接集成 AndroidLiquidGlass 的 Backdrop 2.0.1 渲染管线，卡片、按钮、滑杆、开关和底栏采用其 blur、lens、vibrancy、高光、内阴影与阻尼缩放结构。
 
 - 保留原有玻璃材质与 shader；展开和收起以顶部为锚点。
 - 上滑连续压缩形状，松手衔接当前速度；收起允许轻微负向回弹。
@@ -55,7 +60,7 @@
 
 ## 本地构建
 
-工具链：AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin、Compose 编译插件 2.4.10、Compose BOM 2026.06.01、compile/targetSdk 36、Java 17 字节码。当前主机使用 JDK 21 运行 Gradle。
+工具链：AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin、Compose 编译插件 2.4.10、Compose BOM 2026.06.01、compileSdk 37、targetSdk 36、Java 17 字节码。当前主机使用 JDK 21 运行 Gradle。compileSdk 37 是 Backdrop 2.0.1 的 AAR 要求，不改变 Android 8.0 的最低安装版本。
 
 在 `local.properties` 中设置自己的 `sdk.dir`，随后执行：
 
@@ -72,6 +77,6 @@
 
 参考：[glass-voice-orb-study](https://github.com/cxcboss/glass-voice-orb-study)，固定提交 `3d7e98199b385358df6ddf65a9d20644754f22eb`；[在线演示](https://zq52xy.github.io/glass-voice-orb-study/)。详细归属和非商业要求见 `NOTICE.md`、`LICENSE`。
 
-设置页表面、底栏、滑杆及拖动阻力参考了 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（分析固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`）。为兼容 API 26，使用本项目的 Compose 实现复现交互与视觉结构，不依赖 Android 12+ 的系统背景模糊。
+设置页表面、底栏、滑杆及拖动阻力严格参考 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（分析固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`），并直接依赖其 Backdrop 2.0.1 核心渲染库。高层控件依据仓库示例在本项目内适配，以保留现有 Android 工程与中文设置结构。
 
 参考仓库只在临时目录分析，没有修改、提交或推送。本项目只移植必要的 shader / 动画公式，没有整包复制参考项目或其背景素材。`tools/port-reference-shaders.mjs <参考目录>` 可对固定提交重现 shader 的机械移植，使用 `apply_patch` 写入本地 Android shader。

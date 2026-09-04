@@ -2,7 +2,12 @@ package com.cxcboss.glassorb.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -30,20 +35,24 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -53,10 +62,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.platform.LocalContext
+import com.cxcboss.glassorb.overlay.OrbOverlayService
+import com.cxcboss.glassorb.overlay.OverlayRuntime
+import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
 import com.cxcboss.glassorb.data.ConfigGroup
 import com.cxcboss.glassorb.model.HorizontalAnchor
 import com.cxcboss.glassorb.model.OrbConfig
 import java.util.Locale
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.InnerShadow
+import com.kyant.backdrop.shadow.Shadow
 
 @Composable
 fun ConfigEditor(
@@ -114,6 +135,7 @@ fun ConfigEditor(
             ParameterSlider("顶部偏移", value.verticalOffsetDp, 0f..240f, "dp") {
                 onConfigChange(config.copy(geometry = value.copy(verticalOffsetDp = it)))
             }
+            Text("0 dp = 真实物理屏幕顶边", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ParameterSlider("水平微调", value.horizontalOffsetDp, -200f..200f, "dp") {
                 onConfigChange(config.copy(geometry = value.copy(horizontalOffsetDp = it)))
             }
@@ -359,22 +381,56 @@ private fun ConfigSection(
         }
     }
     if (expanded) {
-        Dialog(onDismissRequest = { expanded = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            var entered by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
+        var closing by remember { mutableStateOf(false) }
+        var entered by remember { mutableStateOf(false) }
+        val dragOffset = remember { Animatable(0f) }
+        fun closeSheet() {
+            if (closing) return
+            closing = true
+            entered = false
+            scope.launch {
+                delay(260)
+                expanded = false
+            }
+        }
+        Dialog(onDismissRequest = ::closeSheet, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             LaunchedEffect(Unit) { entered = true }
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
-                AnimatedVisibility(entered, enter = slideInVertically(initialOffsetY = { it })) {
+                AnimatedVisibility(
+                    entered,
+                    enter = slideInVertically(tween(320), initialOffsetY = { it }),
+                    exit = slideOutVertically(tween(240), targetOffsetY = { it }),
+                ) {
                     androidx.compose.material3.Surface(
-                        Modifier.fillMaxWidth().fillMaxHeight(0.94f),
+                        Modifier.fillMaxWidth().fillMaxHeight(0.94f).graphicsLayer { translationY = dragOffset.value },
                         shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
                         color = MaterialTheme.colorScheme.background,
                         tonalElevation = 8.dp,
                     ) {
                         Column {
+                            Box(
+                                Modifier.fillMaxWidth().height(30.dp)
+                                    .pointerInput(Unit) {
+                                        detectVerticalDragGestures(
+                                            onVerticalDrag = { _, amount ->
+                                                scope.launch { dragOffset.snapTo((dragOffset.value + amount).coerceAtLeast(0f)) }
+                                            },
+                                            onDragEnd = {
+                                                if (dragOffset.value > 72.dp.toPx()) closeSheet()
+                                                else scope.launch { dragOffset.animateTo(0f, spring(.78f, 520f)) }
+                                            },
+                                            onDragCancel = { scope.launch { dragOffset.animateTo(0f, spring(.78f, 520f)) } },
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(Modifier.size(42.dp, 5.dp).background(MaterialTheme.colorScheme.outline.copy(alpha = .5f), CircleShape))
+                            }
                             Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 10.dp, top = 10.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                TextButton(onClick = { expanded = false }) { Text("完成") }
+                                LiquidGlassTextButton(onClick = ::closeSheet) { Text("完成") }
                                 Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                                TextButton(onClick = onReset) { Text("全部复位") }
+                                LiquidGlassTextButton(onClick = onReset) { Text("全部复位") }
                             }
                             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .2f))
                             Column(
@@ -418,28 +474,52 @@ private fun ParameterSlider(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            TextButton(onClick = { onValueChange(defaultValueFor(label)) }) { Text("复位") }
+            LiquidGlassTextButton(onClick = { onValueChange(defaultValueFor(label)) }) { Text("复位") }
         }
         val activeTrack = MaterialTheme.colorScheme.primary
         val inactiveTrack = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
         val interaction = remember { MutableInteractionSource() }
         val pressed by interaction.collectIsPressedAsState()
-        val thumbScale by animateFloatAsState(if (pressed) 1.5f else 1f, label = "liquidThumb")
+        val dragged by interaction.collectIsDraggedAsState()
+        val active = pressed || dragged
+        val context = LocalContext.current
+        LaunchedEffect(label, active) {
+            if (label == "触摸区域倍率" && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
+                OrbOverlayService.setTouchPreview(context, active)
+            }
+        }
+        DisposableEffect(label) {
+            onDispose {
+                if (label == "触摸区域倍率" && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
+                    OrbOverlayService.setTouchPreview(context, false)
+                }
+            }
+        }
+        val thumbScale by animateFloatAsState(if (active) 1.5f else 1f, label = "liquidThumb")
+        val backdrop = LocalGlassBackdrop.current
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
             onValueChange = onValueChange,
             valueRange = range,
             interactionSource = interaction,
             thumb = {
-                Box(Modifier.size(26.dp).graphicsLayer { scaleX = thumbScale; scaleY = thumbScale }
-                    .shadow(4.dp, CircleShape).background(Color.White.copy(alpha = if (pressed) .82f else .98f), CircleShape))
+                Box(Modifier.size(40.dp, 24.dp).graphicsLayer { scaleX = thumbScale; scaleY = thumbScale }
+                    .drawBackdrop(
+                        backdrop = backdrop,
+                        shape = { RoundedCornerShape(999.dp) },
+                        effects = { blur(if (active) 0f else 8.dp.toPx()); lens(10.dp.toPx(), 14.dp.toPx(), chromaticAberration = true) },
+                        highlight = { Highlight.Ambient },
+                        shadow = { Shadow(radius = 4.dp, color = Color.Black.copy(alpha = .08f)) },
+                        innerShadow = { InnerShadow(radius = 4.dp, alpha = if (active) 1f else .35f) },
+                        onDrawSurface = { drawRect(Color.White.copy(alpha = if (active) .35f else .82f)) },
+                    ))
             },
             track = { slider ->
                 Canvas(Modifier.fillMaxWidth().height(26.dp)) {
                     val y = size.height / 2f
                     val fraction = ((slider.value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-                    drawLine(inactiveTrack, Offset(0f, y), Offset(size.width, y), 4.dp.toPx(), StrokeCap.Round)
-                    drawLine(activeTrack, Offset(0f, y), Offset(size.width * fraction, y), 4.dp.toPx(), StrokeCap.Round)
+                    drawLine(inactiveTrack, Offset(0f, y), Offset(size.width, y), 6.dp.toPx(), StrokeCap.Round)
+                    drawLine(activeTrack, Offset(0f, y), Offset(size.width * fraction, y), 6.dp.toPx(), StrokeCap.Round)
                     val initial = ((defaultValueFor(label) - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
                     drawCircle(Color.White.copy(alpha = .8f), 2.dp.toPx(), Offset(size.width * initial, y))
                 }
@@ -452,7 +532,36 @@ private fun ParameterSlider(
 private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        LiquidGlassToggle(checked, onCheckedChange)
+    }
+}
+
+@Composable
+private fun LiquidGlassToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val fraction by animateFloatAsState(if (checked) 1f else 0f, spring(1f, 1_000f), label = "liquidToggle")
+    val backdrop = LocalGlassBackdrop.current
+    val track = androidx.compose.ui.graphics.lerp(
+        MaterialTheme.colorScheme.outline.copy(alpha = .30f),
+        if (androidx.compose.foundation.isSystemInDarkTheme()) Color(0xFF30D158) else Color(0xFF34C759),
+        fraction,
+    )
+    Box(
+        Modifier.size(64.dp, 28.dp).clip(RoundedCornerShape(999.dp)).background(track)
+            .clickable { onCheckedChange(!checked) },
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Box(
+            Modifier.size(40.dp, 24.dp).graphicsLayer { translationX = 2.dp.toPx() + 20.dp.toPx() * fraction }
+                .drawBackdrop(
+                    backdrop = backdrop,
+                    shape = { RoundedCornerShape(999.dp) },
+                    effects = { lens(5.dp.toPx(), 10.dp.toPx(), chromaticAberration = true) },
+                    highlight = { Highlight.Ambient },
+                    shadow = { Shadow(radius = 4.dp, color = Color.Black.copy(alpha = .08f)) },
+                    innerShadow = { InnerShadow(radius = 4.dp, alpha = .45f) },
+                    onDrawSurface = { drawRect(Color.White.copy(alpha = .82f)) },
+                ),
+        )
     }
 }
 

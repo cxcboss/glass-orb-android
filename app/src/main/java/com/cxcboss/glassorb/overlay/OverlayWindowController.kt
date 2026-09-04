@@ -4,6 +4,8 @@ import android.app.ActivityManager
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Point
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -172,6 +174,14 @@ class OverlayWindowController(
     fun setAppAppearance(active: Boolean, dark: Boolean) {
         showDarkCapsuleOutline = active && dark
         postFrame()
+    }
+
+    fun setTouchPreview(visible: Boolean) {
+        touchView?.background = if (visible) GradientDrawable().apply {
+            setColor(Color.TRANSPARENT)
+            setStroke((2f * density).roundToInt().coerceAtLeast(2), Color.RED)
+            cornerRadius = 12f * density
+        } else null
     }
 
     private fun onFrame(frameTimeNanos: Long) {
@@ -490,13 +500,18 @@ class OverlayWindowController(
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             (if (touchable) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         PixelFormat.TRANSLUCENT,
     ).apply {
         gravity = Gravity.TOP or Gravity.START
         x = bounds.left
         y = bounds.top
         title = "Glass orb overlay"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setFitInsetsTypes(0)
     }
 
     private fun removeView() {

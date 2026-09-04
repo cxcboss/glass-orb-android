@@ -85,6 +85,7 @@ class OrbOverlayService : Service() {
                 active = intent?.getBooleanExtra(EXTRA_APP_ACTIVE, false) == true,
                 dark = intent?.getBooleanExtra(EXTRA_DARK_MODE, false) == true,
             )
+            ACTION_TOUCH_PREVIEW -> controller.setTouchPreview(intent?.getBooleanExtra(EXTRA_VISIBLE, false) == true)
         }
         return START_NOT_STICKY
     }
@@ -218,8 +219,10 @@ class OrbOverlayService : Service() {
         const val ACTION_HIDE = "com.cxcboss.glassorb.action.HIDE"
         const val ACTION_STOP = "com.cxcboss.glassorb.action.STOP"
         const val ACTION_APP_APPEARANCE = "com.cxcboss.glassorb.action.APP_APPEARANCE"
+        const val ACTION_TOUCH_PREVIEW = "com.cxcboss.glassorb.action.TOUCH_PREVIEW"
         private const val EXTRA_APP_ACTIVE = "app_active"
         private const val EXTRA_DARK_MODE = "dark_mode"
+        private const val EXTRA_VISIBLE = "visible"
 
         private const val CHANNEL_ID = "glass_orb_overlay"
         private const val NOTIFICATION_ID = 27
@@ -252,6 +255,14 @@ class OrbOverlayService : Service() {
                     .setAction(ACTION_APP_APPEARANCE)
                     .putExtra(EXTRA_APP_ACTIVE, active)
                     .putExtra(EXTRA_DARK_MODE, dark),
+            )
+        }
+
+        fun setTouchPreview(context: Context, visible: Boolean) {
+            context.startService(
+                Intent(context, OrbOverlayService::class.java)
+                    .setAction(ACTION_TOUCH_PREVIEW)
+                    .putExtra(EXTRA_VISIBLE, visible),
             )
         }
     }
