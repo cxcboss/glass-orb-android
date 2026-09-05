@@ -120,7 +120,12 @@ class MainActivity : ComponentActivity() {
                                 .onFailure { Toast.makeText(this, it.message ?: "无法启动悬浮层", Toast.LENGTH_LONG).show() }
                         }
                     },
-                    onShowOverlay = { runCatching { OrbOverlayService.show(this) } },
+                    onShowOverlay = {
+                        runCatching {
+                            OrbOverlayService.show(this)
+                            OrbOverlayService.setAppAppearance(this, active = true, dark = dark)
+                        }
+                    },
                     onHideOverlay = { runCatching { OrbOverlayService.hide(this) } },
                     onStopOverlay = { runCatching { OrbOverlayService.stop(this) } },
                     onConfigChange = viewModel::update,

@@ -181,8 +181,12 @@ void main() {
     float highlight = saturate(highlightBand(d, grad) * uHlAmount);
     vec3 glassRgb = clamp(scene.rgb + vec3(highlight), 0.0, 1.0);
     float glassAlpha = max(scene.a, max(glassRgb.r, max(glassRgb.g, glassRgb.b)));
+    // Keep the morphing body optically dense until it is almost a sphere. Letting
+    // the alpha follow the early morph progress exposes a light wallpaper through
+    // a half-formed pill and reads as a white flash. The settled glass (1.0) is unchanged.
+    float transparencyProgress = smoothstep(0.55, 1.0, uGlassVisibility);
     vec4 inside = vec4(glassRgb * uGlassVisibility,
-        mix(1.0, glassAlpha, uGlassVisibility)) * shapeAlpha;
+        mix(1.0, glassAlpha, transparencyProgress)) * shapeAlpha;
     vec4 projection = outsideProjection(p, halfSize, uCornerRadius);
     // Clip projection only at the shape, not by scene alpha: it never clouds the clear face.
     projection *= (1.0 - shapeAlpha) * uGlassVisibility;

@@ -2,6 +2,15 @@
 
 纯黑灵动岛胶囊，点击舒缓展开为透明玻璃球。原生 Kotlin / Compose 设置页，TextureView / EGL / OpenGL ES 3.0 悬浮渲染，无 WebView。
 
+### 1.4.0-demo 更新
+
+- 不再自行模拟 AndroidLiquidGlass 控件：直接编译参考提交中的 `LiquidButton`、`LiquidSlider`、`LiquidToggle`、`LiquidBottomTabs`、`LiquidBottomTab`，以及其阻尼拖动、手势检查和交互高光源码；8 个文件与参考提交逐字节一致。
+- 补齐参考工程使用的 `shapes 1.2.1`，并保持 `Backdrop 2.0.1`；`compileSdk` 固定为 37，`targetSdk` 保持 36。
+- 主界面加入随系统深浅色变化的低对比色场，让原始 blur / lens / vibrancy 真实作用在可辨识的 Backdrop 上。
+- 修复浅色背景下展开/收起过程中半成形胶囊过早透明造成的发白：只延后形变期间的透明度过渡，稳定胶囊仍为纯黑，完全展开后的玻璃材质与色彩不变。
+- 深色定位描边增加系统主题二次校验，并在“显示悬浮层”时同步刷新 App 外观状态，避免旧的深色状态在浅色模式残留。
+- 胶囊位于物理屏幕顶部时，系统状态栏覆盖的输入高度会等量延伸到状态栏下方；红框预览显示实际扩展后的触控窗口。Android 的状态栏本身仍高于普通应用悬浮窗，受保护的那部分像素不能被 `TYPE_APPLICATION_OVERLAY` 抢占。
+
 ### 1.3.0-demo 更新
 
 - 顶部位置使用物理显示坐标，并关闭系统窗口 Insets 自动避让；`0dp` 可进入状态栏／刘海所在的真实屏幕顶边区域。
@@ -77,6 +86,6 @@
 
 参考：[glass-voice-orb-study](https://github.com/cxcboss/glass-voice-orb-study)，固定提交 `3d7e98199b385358df6ddf65a9d20644754f22eb`；[在线演示](https://zq52xy.github.io/glass-voice-orb-study/)。详细归属和非商业要求见 `NOTICE.md`、`LICENSE`。
 
-设置页表面、底栏、滑杆及拖动阻力严格参考 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（分析固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`），并直接依赖其 Backdrop 2.0.1 核心渲染库。高层控件依据仓库示例在本项目内适配，以保留现有 Android 工程与中文设置结构。
+设置页底栏、滑杆、开关、按钮及拖动阻力直接采用 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6` 源码，并依赖其 Backdrop 2.0.1 与 Shapes 1.2.1。原始源码清单、单平台适配点与许可证位置见 `THIRD_PARTY_NOTICES.md`。
 
 参考仓库只在临时目录分析，没有修改、提交或推送。本项目只移植必要的 shader / 动画公式，没有整包复制参考项目或其背景素材。`tools/port-reference-shaders.mjs <参考目录>` 可对固定提交重现 shader 的机械移植，使用 `apply_patch` 写入本地 Android shader。

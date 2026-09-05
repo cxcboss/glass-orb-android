@@ -18,11 +18,15 @@ Android 版 GLES 管线与动画行为参考上述固定提交，仅用于个人
 
 ## Settings UI reference
 
-Settings controls and floating navigation interaction are adapted from design and interaction patterns in AndroidLiquidGlass at commit `65ab177e90e5c1d8c62e70cf7755841982da65f6`:
+Settings controls and floating navigation use source code from AndroidLiquidGlass at commit `65ab177e90e5c1d8c62e70cf7755841982da65f6`:
 
 - https://github.com/Kyant0/AndroidLiquidGlass
 - Copyright Kyant and contributors
 - Licensed under the Apache License, Version 2.0
 
-The compatible Compose implementation in this demo does not bundle the reference repository or its sample application.
-It links the published `io.github.kyant0:backdrop:2.0.1` library under Apache-2.0.
+This demo directly compiles the reference repository's unmodified `LiquidButton`,
+`LiquidSlider`, `LiquidToggle`, `LiquidBottomTabs`, `LiquidBottomTab`, damped drag,
+drag inspection and interactive highlight source files. It links the published
+`io.github.kyant0:backdrop:2.0.1` and `io.github.kyant0:shapes:1.2.1` artifacts.
+Only the Kotlin Multiplatform frame-wait declaration has an Android single-platform
+adapter. See `THIRD_PARTY_NOTICES.md` and `licenses/AndroidLiquidGlass-LICENSE.txt`.

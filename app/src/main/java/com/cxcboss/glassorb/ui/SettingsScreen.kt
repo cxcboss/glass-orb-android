@@ -9,6 +9,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,17 +28,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -98,10 +95,13 @@ fun SettingsScreen(
     var importDialogVisible by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
     var section by rememberSaveable { mutableStateOf(SettingsSection.Overview) }
+    val darkTheme = isSystemInDarkTheme()
 
     val liquidBackdrop = rememberLayerBackdrop()
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).layerBackdrop(liquidBackdrop))
+        Canvas(Modifier.fillMaxSize().layerBackdrop(liquidBackdrop)) {
+            drawSettingsBackdrop(darkTheme)
+        }
         CompositionLocalProvider(LocalGlassBackdrop provides liquidBackdrop) {
         Box(Modifier.fillMaxSize()) {
         key(section) {
@@ -217,8 +217,10 @@ fun SettingsScreen(
                 )
             },
             confirmButton = {
-                Button(
+                val canImport = importText.isNotBlank()
+                LiquidGlassButton(
                     onClick = {
+                        if (!canImport) return@LiquidGlassButton
                         onImportJson(importText) { result ->
                             if (result.isSuccess) {
                                 importDialogVisible = false
@@ -228,8 +230,9 @@ fun SettingsScreen(
                             }
                         }
                     },
-                    enabled = importText.isNotBlank(),
-                ) { Text("导入") }
+                    tint = if (canImport) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                ) { Text("导入", color = if (canImport) Color.White else MaterialTheme.colorScheme.onSurfaceVariant) }
             },
             dismissButton = { LiquidGlassTextButton(onClick = { importDialogVisible = false }) { Text("取消") } },
         )
@@ -309,11 +312,10 @@ private fun OrbPreviewCard(config: OrbConfig) {
                     Text("实时预览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text("光影与参数实时呈现", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                FilterChip(
-                    selected = thinking,
+                LiquidGlassButton(
                     onClick = { thinking = !thinking },
-                    label = { Text(if (thinking) "思考圆点" else "光谱波形") },
-                )
+                    tint = if (thinking) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                ) { Text(if (thinking) "思考圆点" else "光谱波形", color = if (thinking) Color.White else MaterialTheme.colorScheme.onSurface) }
             }
             Box(
                 Modifier
@@ -335,7 +337,11 @@ private fun OrbPreviewCard(config: OrbConfig) {
             }
             Row(Modifier.padding(horizontal = 18.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("棋盘", "纯白", "深色").forEachIndexed { index, label ->
-                    FilterChip(selected = backdrop == index, onClick = { backdrop = index }, label = { Text(label) })
+                    val selected = backdrop == index
+                    LiquidGlassButton(
+                        onClick = { backdrop = index },
+                        tint = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                    ) { Text(label, color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface) }
                 }
             }
         }
@@ -441,6 +447,50 @@ private fun DrawScope.drawPreviewBackdrop(backdrop: Int) {
         row += 1
         y += step
     }
+}
+
+private fun DrawScope.drawSettingsBackdrop(darkTheme: Boolean) {
+    drawRect(if (darkTheme) Color(0xFF080A10) else Color(0xFFF2F2F7))
+    val longSide = size.maxDimension
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = if (darkTheme) {
+                listOf(Color(0xFF2156A9).copy(alpha = .56f), Color.Transparent)
+            } else {
+                listOf(Color(0xFF65B8FF).copy(alpha = .48f), Color.Transparent)
+            },
+            center = Offset(size.width * .82f, size.height * .12f),
+            radius = longSide * .48f,
+        ),
+        radius = longSide * .48f,
+        center = Offset(size.width * .82f, size.height * .12f),
+    )
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = if (darkTheme) {
+                listOf(Color(0xFF4D2D72).copy(alpha = .52f), Color.Transparent)
+            } else {
+                listOf(Color(0xFFC8A5FF).copy(alpha = .38f), Color.Transparent)
+            },
+            center = Offset(size.width * .08f, size.height * .46f),
+            radius = longSide * .43f,
+        ),
+        radius = longSide * .43f,
+        center = Offset(size.width * .08f, size.height * .46f),
+    )
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = if (darkTheme) {
+                listOf(Color(0xFF087F78).copy(alpha = .34f), Color.Transparent)
+            } else {
+                listOf(Color(0xFF77E1CF).copy(alpha = .38f), Color.Transparent)
+            },
+            center = Offset(size.width * .78f, size.height * .82f),
+            radius = longSide * .38f,
+        ),
+        radius = longSide * .38f,
+        center = Offset(size.width * .78f, size.height * .82f),
+    )
 }
 
 @Composable

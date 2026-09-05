@@ -5,6 +5,7 @@
 **/build/
 /.omx/
 *.iml
+.DS_Store
 
 # The dist folder contains the intentional sideloadable APK and release notes.
 # Keep generated build outputs and machine-local configuration out of Git.

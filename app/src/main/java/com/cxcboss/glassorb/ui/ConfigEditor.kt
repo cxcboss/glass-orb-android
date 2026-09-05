@@ -7,6 +7,8 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -26,15 +28,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,11 +39,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.interaction.collectIsDraggedAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,7 +48,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -72,12 +64,9 @@ import com.cxcboss.glassorb.model.OrbConfig
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.highlight.Highlight
-import com.kyant.backdrop.shadow.InnerShadow
-import com.kyant.backdrop.shadow.Shadow
+import com.kyant.backdrop.catalog.components.LiquidSlider
+import com.kyant.backdrop.catalog.components.LiquidToggle
+import kotlin.math.pow
 
 @Composable
 fun ConfigEditor(
@@ -447,11 +436,15 @@ private fun ConfigSection(
 
 @Composable
 private fun AnchorChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
+    LiquidGlassButton(
+        onClick = onClick,
+        tint = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified,
+    ) {
+        Text(label, color = if (selected) Color.White else MaterialTheme.colorScheme.onSurface)
+    }
 }
 
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 private fun ParameterSlider(
     label: String,
     value: Float,
@@ -476,13 +469,8 @@ private fun ParameterSlider(
             )
             LiquidGlassTextButton(onClick = { onValueChange(defaultValueFor(label)) }) { Text("复位") }
         }
-        val activeTrack = MaterialTheme.colorScheme.primary
-        val inactiveTrack = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
-        val interaction = remember { MutableInteractionSource() }
-        val pressed by interaction.collectIsPressedAsState()
-        val dragged by interaction.collectIsDraggedAsState()
-        val active = pressed || dragged
         val context = LocalContext.current
+        var active by remember(label) { mutableStateOf(false) }
         LaunchedEffect(label, active) {
             if (label == "触摸区域倍率" && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
                 OrbOverlayService.setTouchPreview(context, active)
@@ -495,36 +483,53 @@ private fun ParameterSlider(
                 }
             }
         }
-        val thumbScale by animateFloatAsState(if (active) 1.5f else 1f, label = "liquidThumb")
         val backdrop = LocalGlassBackdrop.current
-        Slider(
-            value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = onValueChange,
-            valueRange = range,
-            interactionSource = interaction,
-            thumb = {
-                Box(Modifier.size(40.dp, 24.dp).graphicsLayer { scaleX = thumbScale; scaleY = thumbScale }
-                    .drawBackdrop(
-                        backdrop = backdrop,
-                        shape = { RoundedCornerShape(999.dp) },
-                        effects = { blur(if (active) 0f else 8.dp.toPx()); lens(10.dp.toPx(), 14.dp.toPx(), chromaticAberration = true) },
-                        highlight = { Highlight.Ambient },
-                        shadow = { Shadow(radius = 4.dp, color = Color.Black.copy(alpha = .08f)) },
-                        innerShadow = { InnerShadow(radius = 4.dp, alpha = if (active) 1f else .35f) },
-                        onDrawSurface = { drawRect(Color.White.copy(alpha = if (active) .35f else .82f)) },
-                    ))
-            },
-            track = { slider ->
-                Canvas(Modifier.fillMaxWidth().height(26.dp)) {
-                    val y = size.height / 2f
-                    val fraction = ((slider.value - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-                    drawLine(inactiveTrack, Offset(0f, y), Offset(size.width, y), 6.dp.toPx(), StrokeCap.Round)
-                    drawLine(activeTrack, Offset(0f, y), Offset(size.width * fraction, y), 6.dp.toPx(), StrokeCap.Round)
-                    val initial = ((defaultValueFor(label) - range.start) / (range.endInclusive - range.start)).coerceIn(0f, 1f)
-                    drawCircle(Color.White.copy(alpha = .8f), 2.dp.toPx(), Offset(size.width * initial, y))
-                }
-            },
-        )
+        val initial = ((defaultValueFor(label) - range.start) /
+            (range.endInclusive - range.start)).coerceIn(0f, 1f)
+        val defaultMarkerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .48f)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(30.dp)
+                .observePressState(label == "触摸区域倍率") { active = it },
+            contentAlignment = Alignment.Center,
+        ) {
+            LiquidSlider(
+                value = { value.coerceIn(range.start, range.endInclusive) },
+                onValueChange = onValueChange,
+                valueRange = range,
+                visibilityThreshold = (10.0.pow(-(decimals + 2)).toFloat()).coerceAtLeast(0.000001f),
+                backdrop = backdrop,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Canvas(Modifier.fillMaxWidth().height(24.dp)) {
+                val x = size.width * initial
+                val y = size.height / 2f
+                drawLine(
+                    color = defaultMarkerColor,
+                    start = Offset(x, y - 4.dp.toPx()),
+                    end = Offset(x, y + 4.dp.toPx()),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            }
+        }
+    }
+}
+
+private fun Modifier.observePressState(enabled: Boolean, onChanged: (Boolean) -> Unit): Modifier {
+    if (!enabled) return this
+    return pointerInput(onChanged) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            onChanged(true)
+            try {
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                } while (event.changes.any { it.pressed })
+            } finally {
+                onChanged(false)
+            }
+        }
     }
 }
 
@@ -532,35 +537,10 @@ private fun ParameterSlider(
 private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        LiquidGlassToggle(checked, onCheckedChange)
-    }
-}
-
-@Composable
-private fun LiquidGlassToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    val fraction by animateFloatAsState(if (checked) 1f else 0f, spring(1f, 1_000f), label = "liquidToggle")
-    val backdrop = LocalGlassBackdrop.current
-    val track = androidx.compose.ui.graphics.lerp(
-        MaterialTheme.colorScheme.outline.copy(alpha = .30f),
-        if (androidx.compose.foundation.isSystemInDarkTheme()) Color(0xFF30D158) else Color(0xFF34C759),
-        fraction,
-    )
-    Box(
-        Modifier.size(64.dp, 28.dp).clip(RoundedCornerShape(999.dp)).background(track)
-            .clickable { onCheckedChange(!checked) },
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        Box(
-            Modifier.size(40.dp, 24.dp).graphicsLayer { translationX = 2.dp.toPx() + 20.dp.toPx() * fraction }
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { RoundedCornerShape(999.dp) },
-                    effects = { lens(5.dp.toPx(), 10.dp.toPx(), chromaticAberration = true) },
-                    highlight = { Highlight.Ambient },
-                    shadow = { Shadow(radius = 4.dp, color = Color.Black.copy(alpha = .08f)) },
-                    innerShadow = { InnerShadow(radius = 4.dp, alpha = .45f) },
-                    onDrawSurface = { drawRect(Color.White.copy(alpha = .82f)) },
-                ),
+        LiquidToggle(
+            selected = { checked },
+            onSelect = onCheckedChange,
+            backdrop = LocalGlassBackdrop.current,
         )
     }
 }

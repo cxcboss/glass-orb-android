@@ -40,6 +40,17 @@ object OverlayLayout {
             geometry, safeBoundsPx, density,
         )
 
+    /**
+     * System status bars are above TYPE_APPLICATION_OVERLAY for input. If a visual
+     * target overlaps that protected strip, extend an equivalent hit band below it
+     * so the full configured touch height remains reachable without moving the orb.
+     */
+    fun extendTouchBelowBlockedTop(bounds: IntRect, blockedBottomPx: Int, limitBottomPx: Int): IntRect {
+        val blockedHeight = (blockedBottomPx - bounds.top).coerceIn(0, bounds.height)
+        if (blockedHeight == 0) return bounds
+        return bounds.copy(bottom = (bounds.bottom + blockedHeight).coerceAtMost(limitBottomPx))
+    }
+
     fun expandedBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {
         val visualSizeDp = expandedCanvasDp(geometry)
         val size = max(visualSizeDp, MIN_TOUCH_DP).dpToPx(density)

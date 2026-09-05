@@ -110,7 +110,7 @@ class OverlayWindowController(
         val collapsed = OverlayLayout.collapsedBounds(config.geometry, safe, density)
         windowMotion.setExpandedWindow(OverlayLayout.anchorOffsets(bounds, collapsed, density))
         val layoutParams = createLayoutParams(bounds, touchable = false)
-        val touchBounds = OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
+        val touchBounds = touchBounds(expanded = false, safe = safe)
         val target = View(context).apply { setOnTouchListener(::onTouch) }
         val targetParams = createLayoutParams(touchBounds, touchable = true)
         return try {
@@ -262,7 +262,8 @@ class OverlayWindowController(
                 viewportWidth = params?.width ?: 0,
                 viewportHeight = params?.height ?: 0,
                 presentationToken = presentationToken,
-                capsuleOutline = showDarkCapsuleOutline && stateMachine.state == OverlayState.Collapsed,
+                capsuleOutline = showDarkCapsuleOutline && isSystemDarkMode() &&
+                    stateMachine.state == OverlayState.Collapsed,
             ),
             )
         }
@@ -455,8 +456,7 @@ class OverlayWindowController(
         val target = touchView ?: return
         val layoutParams = touchParams ?: return
         val safe = safeBounds()
-        val bounds = if (expanded) OverlayLayout.orbTouchBounds(config.geometry, safe, density)
-        else OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
+        val bounds = touchBounds(expanded, safe)
         if (layoutParams.width == bounds.width && layoutParams.height == bounds.height &&
             layoutParams.x == bounds.left && layoutParams.y == bounds.top) return
         layoutParams.width = bounds.width
@@ -488,6 +488,31 @@ class OverlayWindowController(
         }
     }
 
+    private fun touchBounds(expanded: Boolean, safe: IntRect): IntRect {
+        val visualBounds = if (expanded) OverlayLayout.orbTouchBounds(config.geometry, safe, density)
+        else OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
+        return OverlayLayout.extendTouchBelowBlockedTop(
+            bounds = visualBounds,
+            blockedBottomPx = protectedTopInsetPx(),
+            limitBottomPx = safe.bottom,
+        )
+    }
+
+    private fun protectedTopInsetPx(): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metrics = windowManager.currentWindowMetrics
+            val inset = metrics.windowInsets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout(),
+            ).top
+            return metrics.bounds.top + inset
+        }
+        return systemDimension("status_bar_height")
+    }
+
+    private fun isSystemDarkMode(): Boolean =
+        context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+
     private fun createLayoutParams(bounds: IntRect, touchable: Boolean) = WindowManager.LayoutParams(
         bounds.width,
         bounds.height,
@@ -508,8 +533,10 @@ class OverlayWindowController(
         x = bounds.left
         y = bounds.top
         title = "Glass orb overlay"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setFitInsetsTypes(0)
     }

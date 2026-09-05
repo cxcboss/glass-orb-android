@@ -11,8 +11,8 @@ android {
         applicationId = "com.cxcboss.glassorb"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "1.3.0-demo"
+        versionCode = 5
+        versionName = "1.4.0-demo"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -30,6 +30,8 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 
+    sourceSets.getByName("main").assets.directories.add(rootProject.file("licenses").absolutePath)
+
     testOptions {
         unitTests.isIncludeAndroidResources = true
     }
@@ -45,6 +47,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
     implementation("androidx.datastore:datastore-preferences:1.1.7")
     implementation("io.github.kyant0:backdrop:2.0.1")
+    implementation("io.github.kyant0:shapes:1.2.1")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
