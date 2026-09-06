@@ -1,18 +1,18 @@
 # 灵动玻璃球 · Android UI Demo
 
-纯黑灵动岛胶囊，点击舒缓展开为透明玻璃球。Kotlin / Compose 设置页，TextureView / EGL / OpenGL ES 3.0 悬浮渲染，无 WebView。
+纯黑灵动岛胶囊，点击舒缓展开为透明玻璃球。Kotlin / Android 平台原生 View 设置页，TextureView / EGL / OpenGL ES 3.0 悬浮渲染，无 WebView。
 
 ## 1.5.0-demo
 
-本版重构 App 内设置页：采用 Android Material 3 原生层级、动态取色、系统浅深色和标准列表。移除底栏、底部参数弹层、内置 GLES 实时预览和彩色背景；设置页不再持续提交渲染帧。导航使用 Navigation Compose 2.10，二级页面由系统导航栈管理，返回按钮、系统返回和 Android 预测性返回手势共享同一栈。
+本版重构 App 内设置页：采用 Android 平台原生 `Toolbar`、`ScrollView`、`Switch`、`SeekBar`、`RadioButton`、`EditText` 和 `AlertDialog`，跟随系统浅深色和标准列表。移除底栏、底部参数弹层、内置 GLES 实时预览和彩色背景；设置页不再持续提交渲染帧。二级页面由轻量原生导航栈管理，返回按钮、系统返回和 Android 预测性返回手势共享同一栈。
 
 首页依次为悬浮球、外观、交互、参数、关于。总开关仅在悬浮球正在显示时开启：无权限时进入授权，已隐藏时显示，其余状态启动；关闭时隐藏。启动、显示、隐藏和停止操作均可在「运行与权限」详情页使用，停止需确认。
 
-七个参数分组使用独立 LazyColumn 页面，保留全部参数范围、单位、精度、位置预设和依赖显示。每条滑杆显示默认值标记，偏离默认值时显示「还原」；分组与全部恢复均需确认。触摸区域倍率调节期间仍显示悬浮层红框，触发使用显式布尔标记，不依赖界面文案。
+七个参数分组使用独立 `ScrollView` 页面，保留全部参数范围、单位、精度、位置预设和依赖显示。每条滑杆显示默认值标记，偏离默认值时显示「还原」；分组与全部恢复均需确认。触摸区域倍率调节期间仍显示悬浮层红框，触发使用显式参数 ID，不依赖界面文案。
 
-设置控件全部采用 Android Material 3 原生实现：`Slider`、`Switch`、`FilterChip`、`ListItem`、`Card`、`OutlinedTextField` 和标准 Snackbar/Dialog。分组内容使用系统色面，不叠加装饰性玻璃、渐变或阴影。未引入 Apple 字体或 SF Symbols；AndroidLiquidGlass 仅作为玻璃球依赖来源说明保留，不参与设置页控件。
+设置控件全部采用 Android 平台原生实现：`SeekBar`、`Switch`、`RadioButton`、`EditText`、`Toolbar`、`ScrollView` 和标准 `AlertDialog`。分组内容使用系统色面，不叠加装饰性玻璃、渐变或阴影。未引入 Apple 字体或 SF Symbols；AndroidLiquidGlass 仅保留来源说明，不参与设置页控件或运行时依赖。
 
-玻璃球模型、数据、悬浮窗、运动和渲染代码及 shader 本版均未改动，配置 schema 与默认值保持原样。覆盖安装保留现有参数。版本为 versionCode 6 / versionName 1.5.0-demo。
+玻璃球模型、数据、悬浮窗和运动参数保持兼容；本版仅修正暗场合成，使胶囊和球体上部的纯黑区域不会泄漏波形 RGB。配置 schema 与默认值保持原样。覆盖安装保留现有参数。版本为 versionCode 6 / versionName 1.5.0-demo。
 
 ## 安装与使用
 
@@ -49,7 +49,7 @@
 
 ## 本地构建
 
-AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin、Compose 编译插件 2.4.10、Compose BOM 2026.06.01。compileSdk 37 / targetSdk 36 / minSdk 26；Java 17 字节码，当前主机使用 JDK 21。
+AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin。compileSdk 37 / targetSdk 36 / minSdk 26；Java 17 字节码，当前主机使用 JDK 21。
 
 在 `local.properties` 设置 `sdk.dir` 后执行：
 
@@ -58,7 +58,7 @@ AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin、Compose 编译插件 2.4.10、Com
 ./gradlew compileDebugAndroidTestKotlin --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
 ```
 
-本版按要求未运行模拟器或实体机测试。导航、总开关、坐标映射与默认值逻辑有 JVM 测试；Android 界面测试更新并编译，尚未 connected 运行。120Hz 跟随 Compose/Choreographer，未添加 60fps 限制；实际刷新率与手势观感需目标设备验证。
+本版按要求未运行模拟器或实体机测试。导航、总开关、坐标映射与默认值逻辑有 JVM 测试；Android 界面测试更新并编译，尚未 connected 运行。120Hz 跟随 Android Choreographer，未添加 60fps 限制；实际刷新率与手势观感需目标设备验证。
 
 生成物位于 Java 临时目录的 `glass-orb-android-build/app`，以避免 Desktop 同步目录的冲突副本。APK 为其 `outputs/apk/debug/app-debug.apk`，交付副本与 SHA-256 位于 `dist/`。
 
@@ -68,6 +68,6 @@ AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin、Compose 编译插件 2.4.10、Com
 
 效果参考：[glass-voice-orb-study](https://github.com/cxcboss/glass-voice-orb-study)，固定提交 `3d7e98199b385358df6ddf65a9d20644754f22eb`；[在线演示](https://zq52xy.github.io/glass-voice-orb-study/)。归属和非商业要求见 `NOTICE.md`、`LICENSE`。
 
-项目保留 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 依赖及归属说明，固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`；设置页不再调用其 Liquid Glass 控件，玻璃球渲染核心保持独立。具体许可见 `THIRD_PARTY_NOTICES.md`。底栏源码仅作为未使用的第三方文件保留，不进入界面运行路径。
+项目保留 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 来源及归属说明，固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`；设置页采用平台原生控件，玻璃球渲染核心保持独立。具体许可见 `THIRD_PARTY_NOTICES.md`。
 
 参考仓库只在临时目录分析，没有修改或提交；`tools/port-reference-shaders.mjs <参考目录>` 可重现固定提交 shader 的机械移植。

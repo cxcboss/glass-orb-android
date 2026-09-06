@@ -168,7 +168,8 @@ void main() {
     vec2 p = pixel - center;
     float d = shapeDistance(p, halfSize, uCornerRadius);
     float shapeAlpha = 1.0 - smoothstep(-1.0, 1.0, d);
-    // A collapsed Dynamic Island is ink black: no wave, tint, rim or projection.
+    // A collapsed Dynamic Island is ink black: no wave, tint or projection.
+    // The optional rim is the short-lived dark-theme launch outline only.
     if (uGlassVisibility <= 0.0001) {
 		float rim = (1.0 - smoothstep(0.0, 2.0, abs(d))) * uCapsuleOutline * 0.42;
 		outColor = vec4(vec3(rim), max(shapeAlpha, rim));

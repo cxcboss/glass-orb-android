@@ -27,6 +27,15 @@ void main() {
     float verticalFade = yFromTop <= uContainerBlack ? 1.0 : exp(-uContainerGauss * t * t);
     float edge = smoothstep(0.0, 0.14, min(effectUv.x, 1.0 - effectUv.x));
     float containerAlpha = clamp(uContainerStrength, 0.0, 1.0) * verticalFade * edge;
-    float inverseEffectAlpha = 1.0 - effect.a;
-    outColor = vec4(effect.rgb, effect.a + containerAlpha * inverseEffectAlpha);
+    // The top band must be an opaque black continuation of the capsule. The
+    // previous port only increased alpha, leaving the wave RGB in the scene
+    // texture; the glass pass then exposed that RGB as a grey/coloured upper
+    // half. Compose the black field into both RGB and alpha before sampling it
+    // in the glass pass. Below the band the same gaussian mask preserves the
+    // configured soft fade into the transparent scene.
+    float topBlack = (yFromTop <= uContainerBlack) ? 1.0 : 0.0;
+    float blackMask = max(containerAlpha, topBlack * edge);
+    vec3 sceneRgb = effect.rgb * (1.0 - blackMask);
+    float sceneAlpha = max(effect.a, blackMask);
+    outColor = vec4(sceneRgb, sceneAlpha);
 }

@@ -7,135 +7,189 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.cxcboss.glassorb.overlay.OrbOverlayService
 import com.cxcboss.glassorb.overlay.OverlayRuntime
+import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
+import kotlinx.coroutines.launch
+import android.window.OnBackInvokedDispatcher
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
+    private lateinit var settingsController: NativeSettingsController
+    private var overlayPermission = false
+    private var darkMode = false
+
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        updateOverlayPermission()
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (!granted) Toast.makeText(this, "通知权限未开启，悬浮服务仍可运行", Toast.LENGTH_SHORT).show()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
-        setContent {
-            GlassOrbTheme {
-                val dark = isSystemInDarkTheme()
-                SideEffect {
-                    WindowCompat.getInsetsController(window, window.decorView).apply {
-                        isAppearanceLightStatusBars = !dark
-                        isAppearanceLightNavigationBars = !dark
-                    }
-                }
-                val config by viewModel.config.collectAsStateWithLifecycle()
-                val runtimeStatus by OverlayRuntime.status.collectAsStateWithLifecycle()
-                LaunchedEffect(runtimeStatus, dark) {
-                    if (runtimeStatus == com.cxcboss.glassorb.overlay.OverlayRuntimeStatus.Visible) {
-                        OrbOverlayService.setAppAppearance(this@MainActivity, active = true, dark = dark)
-                    }
-                }
-                var overlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(this)) }
-                val lifecycleOwner = LocalLifecycleOwner.current
-                val overlayPermissionLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.StartActivityForResult(),
-                ) {
-                    overlayPermission = Settings.canDrawOverlays(this)
-                }
-                val notificationPermissionLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.RequestPermission(),
-                ) { granted ->
-                    if (!granted) {
-                        Toast.makeText(this, "通知权限未开启，悬浮服务仍可运行", Toast.LENGTH_SHORT).show()
-                    }
-                }
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        darkMode = isSystemDarkMode()
+        updateSystemBars()
 
-                DisposableEffect(lifecycleOwner, dark) {
-                    val observer = LifecycleEventObserver { _, event ->
-                        if (event == Lifecycle.Event.ON_RESUME) {
-                            overlayPermission = Settings.canDrawOverlays(this@MainActivity)
-                            if (OverlayRuntime.status.value == com.cxcboss.glassorb.overlay.OverlayRuntimeStatus.Visible) {
-                                OrbOverlayService.setAppAppearance(this@MainActivity, active = true, dark = dark)
-                            }
-                        } else if (event == Lifecycle.Event.ON_PAUSE &&
-                            OverlayRuntime.status.value == com.cxcboss.glassorb.overlay.OverlayRuntimeStatus.Visible
-                        ) {
-                            OrbOverlayService.setAppAppearance(this@MainActivity, active = false, dark = dark)
-                        }
-                    }
-                    lifecycleOwner.lifecycle.addObserver(observer)
-                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        val root = FrameLayout(this).apply {
+            id = View.generateViewId()
+        }
+        settingsController = NativeSettingsController(
+            activity = this,
+            root = root,
+            callbacks = NativeSettingsCallbacks(
+                requestOverlayPermission = ::requestOverlayPermission,
+                startOverlay = ::startOverlay,
+                showOverlay = ::showOverlay,
+                hideOverlay = ::hideOverlay,
+                stopOverlay = ::stopOverlay,
+                updateConfig = viewModel::update,
+                applyPreset = viewModel::applyPreset,
+                resetGroup = viewModel::reset,
+                resetAll = viewModel::resetAll,
+                exportJson = viewModel::exportJson,
+                importJson = viewModel::importJson,
+            ),
+        )
+        setContentView(root)
+        registerPredictiveBack()
+        if (Build.VERSION.SDK_INT < 33) {
+            onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (!settingsController.goBack()) finish()
                 }
+            })
+        }
+        updateOverlayPermission()
 
-                SettingsScreen(
-                    config = config,
-                    runtimeStatus = runtimeStatus,
-                    overlayPermission = overlayPermission,
-                    onRequestOverlayPermission = {
-                        overlayPermissionLauncher.launch(
-                            Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:$packageName"),
-                            ),
-                        )
-                    },
-                    onStartOverlay = {
-                        if (!Settings.canDrawOverlays(this)) {
-                            overlayPermissionLauncher.launch(
-                                Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:$packageName"),
-                                ),
-                            )
-                        } else {
-                            if (
-                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-                                PackageManager.PERMISSION_GRANTED
-                            ) {
-                                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            }
-                            runCatching {
-                                OrbOverlayService.start(this)
-                                OrbOverlayService.setAppAppearance(this, active = true, dark = dark)
-                            }
-                                .onFailure { Toast.makeText(this, it.message ?: "无法启动悬浮层", Toast.LENGTH_LONG).show() }
-                        }
-                    },
-                    onShowOverlay = {
-                        runCatching {
-                            OrbOverlayService.show(this)
-                            OrbOverlayService.setAppAppearance(this, active = true, dark = dark)
-                        }
-                    },
-                    onHideOverlay = { runCatching { OrbOverlayService.hide(this) } },
-                    onStopOverlay = { runCatching { OrbOverlayService.stop(this) } },
-                    onConfigChange = viewModel::update,
-                    onPreset = viewModel::applyPreset,
-                    onResetGroup = viewModel::reset,
-                    onResetAll = viewModel::resetAll,
-                    onExportJson = viewModel::exportJson,
-                    onImportJson = viewModel::importJson,
-                )
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    viewModel.config.collect { settingsController.updateConfig(it) }
+                }
+                launch {
+                    OverlayRuntime.status.collect { settingsController.updateRuntimeStatus(it) }
+                }
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        updateOverlayPermission()
+        darkMode = isSystemDarkMode()
+        updateSystemBars()
+        if (OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
+            OrbOverlayService.setAppAppearance(this, active = true, dark = darkMode)
+        }
+    }
+
+    override fun onPause() {
+        if (OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
+            OrbOverlayService.setAppAppearance(this, active = false, dark = darkMode)
+        }
+        super.onPause()
+    }
+
+    private fun registerPredictiveBack() {
+        if (Build.VERSION.SDK_INT >= 34) {
+            window.onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                settingsController.backAnimationCallback,
+            )
+        } else if (Build.VERSION.SDK_INT >= 33) {
+            window.onBackInvokedDispatcher.registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                settingsController.backInvokedCallback,
+            )
+        }
+    }
+
+    override fun onDestroy() {
+        if (::settingsController.isInitialized) {
+            if (Build.VERSION.SDK_INT >= 34) {
+                window.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(settingsController.backAnimationCallback)
+            } else if (Build.VERSION.SDK_INT >= 33) {
+                window.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(settingsController.backInvokedCallback)
+            }
+        }
+        super.onDestroy()
+    }
+
+    private fun requestOverlayPermission() {
+        overlayPermissionLauncher.launch(
+            Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName"),
+            ),
+        )
+    }
+
+    private fun startOverlay() {
+        if (!Settings.canDrawOverlays(this)) {
+            requestOverlayPermission()
+            return
+        }
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        runCatching {
+            OrbOverlayService.start(this)
+            OrbOverlayService.setAppAppearance(this, active = true, dark = darkMode)
+        }.onFailure { Toast.makeText(this, it.message ?: "无法启动悬浮层", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun showOverlay() {
+        runCatching {
+            OrbOverlayService.show(this)
+            OrbOverlayService.setAppAppearance(this, active = true, dark = darkMode)
+        }.onFailure { Toast.makeText(this, it.message ?: "无法显示悬浮层", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun hideOverlay() {
+        runCatching { OrbOverlayService.hide(this) }
+            .onFailure { Toast.makeText(this, it.message ?: "无法隐藏悬浮层", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun stopOverlay() {
+        runCatching { OrbOverlayService.stop(this) }
+            .onFailure { Toast.makeText(this, it.message ?: "无法停止悬浮层", Toast.LENGTH_LONG).show() }
+    }
+
+    private fun updateOverlayPermission() {
+        overlayPermission = Settings.canDrawOverlays(this)
+        if (::settingsController.isInitialized) settingsController.updateOverlayPermission(overlayPermission)
+    }
+
+    private fun updateSystemBars() {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !darkMode
+            isAppearanceLightNavigationBars = !darkMode
+        }
+    }
+
+    private fun isSystemDarkMode(): Boolean =
+        resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
 }
