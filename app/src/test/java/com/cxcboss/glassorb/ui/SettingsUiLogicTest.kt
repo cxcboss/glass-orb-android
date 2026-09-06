@@ -18,17 +18,6 @@ class SettingsUiLogicTest {
         assertEquals(SettingsRoute.Home, parseSettingsRoute("unknown"))
     }
 
-    @Test fun navigationPreservesRootAndRestoresDetail() {
-        val root = SettingsNavigator()
-        assertEquals(1, root.depth)
-        assertEquals(root, root.pop())
-        val detail = root.push(SettingsRoute.ConfigGroupDetail(ConfigGroup.Glass)).push(SettingsRoute.About)
-        assertEquals(3, detail.depth)
-        assertEquals(SettingsRoute.ConfigGroupDetail(ConfigGroup.Glass), detail.pop().current)
-        assertEquals(detail, SettingsNavigator.restore(detail.save()))
-        assertEquals(root, SettingsNavigator.restore(listOf("invalid")))
-    }
-
     @Test fun masterSwitchResolvesPermissionAndRuntimeActions() {
         assertEquals(OverlayAction.RequestPermission, resolveOverlayAction(true, false, OverlayRuntimeStatus.Hidden))
         assertEquals(OverlayAction.Show, resolveOverlayAction(true, true, OverlayRuntimeStatus.Hidden))

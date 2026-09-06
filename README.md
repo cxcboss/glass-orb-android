@@ -4,13 +4,13 @@
 
 ## 1.5.0-demo
 
-本版重构 App 内设置页：采用 iOS 26 设置层级、系统浅深色、不透明分组与居中二级标题。移除底栏、底部参数弹层、内置 GLES 实时预览和彩色背景；设置页不再持续提交渲染帧。导航采用约 360ms 横向过渡，返回按钮与 Android 系统返回共享导航栈，根页交由系统退出；当前使用普通系统返回，未提供预测返回进度预览。
+本版重构 App 内设置页：采用 Android Material 3 原生层级、动态取色、系统浅深色和标准列表。移除底栏、底部参数弹层、内置 GLES 实时预览和彩色背景；设置页不再持续提交渲染帧。导航使用 Navigation Compose 2.10，二级页面由系统导航栈管理，返回按钮、系统返回和 Android 预测性返回手势共享同一栈。
 
 首页依次为悬浮球、外观、交互、参数、关于。总开关仅在悬浮球正在显示时开启：无权限时进入授权，已隐藏时显示，其余状态启动；关闭时隐藏。启动、显示、隐藏和停止操作均可在「运行与权限」详情页使用，停止需确认。
 
 七个参数分组使用独立 LazyColumn 页面，保留全部参数范围、单位、精度、位置预设和依赖显示。每条滑杆显示默认值标记，偏离默认值时显示「还原」；分组与全部恢复均需确认。触摸区域倍率调节期间仍显示悬浮层红框，触发使用显式布尔标记，不依赖界面文案。
 
-Liquid Glass 仅用于导航、主要操作、滑块头与列表开关。沿用 AndroidLiquidGlass / Backdrop 2.0.1 的 lens、高光、阻尼及拉伸；本版修补最新状态/回调同步、整条 44dp 滑杆触摸区、取消/RTL、51×31dp 开关和 44dp 按钮。分组内容不使用玻璃卡片。未引入 Apple 字体或 SF Symbols。
+设置控件全部采用 Android Material 3 原生实现：`Slider`、`Switch`、`FilterChip`、`ListItem`、`Card`、`OutlinedTextField` 和标准 Snackbar/Dialog。分组内容使用系统色面，不叠加装饰性玻璃、渐变或阴影。未引入 Apple 字体或 SF Symbols；AndroidLiquidGlass 仅作为玻璃球依赖来源说明保留，不参与设置页控件。
 
 玻璃球模型、数据、悬浮窗、运动和渲染代码及 shader 本版均未改动，配置 schema 与默认值保持原样。覆盖安装保留现有参数。版本为 versionCode 6 / versionName 1.5.0-demo。
 
@@ -68,6 +68,6 @@ AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin、Compose 编译插件 2.4.10、Com
 
 效果参考：[glass-voice-orb-study](https://github.com/cxcboss/glass-voice-orb-study)，固定提交 `3d7e98199b385358df6ddf65a9d20644754f22eb`；[在线演示](https://zq52xy.github.io/glass-voice-orb-study/)。归属和非商业要求见 `NOTICE.md`、`LICENSE`。
 
-设置控件基于 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)，固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`，依赖 Backdrop 2.0.1 / Shapes 1.2.1；具体修改与许可见 `THIRD_PARTY_NOTICES.md`。底栏源码仅作为未使用的第三方文件保留，不进入界面运行路径。
+项目保留 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 依赖及归属说明，固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`；设置页不再调用其 Liquid Glass 控件，玻璃球渲染核心保持独立。具体许可见 `THIRD_PARTY_NOTICES.md`。底栏源码仅作为未使用的第三方文件保留，不进入界面运行路径。
 
 参考仓库只在临时目录分析，没有修改或提交；`tools/port-reference-shaders.mjs <参考目录>` 可重现固定提交 shader 的机械移植。

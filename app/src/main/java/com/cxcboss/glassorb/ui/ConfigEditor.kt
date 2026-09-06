@@ -1,22 +1,23 @@
 package com.cxcboss.glassorb.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -28,8 +29,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.cxcboss.glassorb.data.ConfigGroup
 import com.cxcboss.glassorb.model.HorizontalAnchor
@@ -37,14 +36,9 @@ import com.cxcboss.glassorb.model.OrbConfig
 import com.cxcboss.glassorb.overlay.OrbOverlayService
 import com.cxcboss.glassorb.overlay.OverlayRuntime
 import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
-import com.kyant.backdrop.catalog.components.LiquidSlider
-import com.kyant.backdrop.catalog.components.LiquidToggle
 import java.util.Locale
-import kotlin.math.pow
 
 private val ReferenceConfig = OrbConfig.reference()
-private val ParameterShape = RoundedCornerShape(12.dp)
-
 @Composable
 fun ConfigEditor(config: OrbConfig, onConfigChange: (OrbConfig) -> Unit, group: ConfigGroup, onReset: () -> Unit) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -414,9 +408,12 @@ fun ConfigEditor(config: OrbConfig, onConfigChange: (OrbConfig) -> Unit, group: 
 
 @Composable
 private fun AnchorChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Text(if (selected) "$label ✓" else label,
-        Modifier.clickable(onClick = onClick).padding(horizontal = 18.dp, vertical = 14.dp),
-        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        colors = FilterChipDefaults.filterChipColors(),
+    )
 }
 
 @Composable
@@ -431,8 +428,8 @@ private fun ParameterSlider(
     onValueChange: (Float) -> Unit,
 ) {
     Column(
-        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, ParameterShape).padding(horizontal = 16.dp, vertical = 8.dp).semantics { contentDescription = "$label 调节" },
-        verticalArrangement = Arrangement.spacedBy(0.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
@@ -445,28 +442,25 @@ private fun ParameterSlider(
                 color = MaterialTheme.colorScheme.primary,
             )
             val isModified = isParameterModified(value, defaultValue, decimals)
-            // Reserve the reset action slot even when it is hidden. This keeps
-            // the row and slider at a stable y-position during a drag.
-            Box(
-                Modifier.width(56.dp).height(44.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (isModified) {
-                    Text(
-                        "还原",
-                        Modifier.clickable { onValueChange(restoreParameter(defaultValue)) }
-                            .padding(horizontal = 6.dp, vertical = 8.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+            if (isModified) {
+                androidx.compose.material3.TextButton(onClick = { onValueChange(restoreParameter(defaultValue)) }) {
+                    Text("还原")
                 }
             }
         }
         val context = LocalContext.current
         var active by remember(touchPreview) { mutableStateOf(false) }
-        LaunchedEffect(touchPreview, active) {
-            if (touchPreview && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
-                OrbOverlayService.setTouchPreview(context, active)
+        val interactionSource = remember { MutableInteractionSource() }
+        LaunchedEffect(interactionSource) {
+            interactionSource.interactions.collect { interaction ->
+                when (interaction) {
+                    is DragInteraction.Start -> active = true
+                    is DragInteraction.Stop, is DragInteraction.Cancel -> active = false
+                }
             }
+        }
+        LaunchedEffect(touchPreview, active) {
+            if (touchPreview && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) OrbOverlayService.setTouchPreview(context, active)
         }
         DisposableEffect(touchPreview) {
             onDispose {
@@ -475,39 +469,23 @@ private fun ParameterSlider(
                 }
             }
         }
-        val backdrop = LocalGlassBackdrop.current
-        val initial = ((defaultValue - range.start) /
-            (range.endInclusive - range.start)).coerceIn(0f, 1f)
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(44.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            LiquidSlider(
-                value = { value.coerceIn(range.start, range.endInclusive) },
-                onValueChange = onValueChange,
-                valueRange = range,
-                defaultFraction = initial,
-                onInteractionChange = { active = it },
-                visibilityThreshold = (10.0.pow(-(decimals + 2)).toFloat()).coerceAtLeast(0.000001f),
-                backdrop = backdrop,
-                modifier = Modifier.fillMaxWidth(),
-            )
-
-        }
+        Slider(
+            value = value.coerceIn(range.start, range.endInclusive),
+            onValueChange = onValueChange,
+            valueRange = range,
+            steps = 0,
+            interactionSource = interactionSource,
+            colors = SliderDefaults.colors(),
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
 @Composable
 fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, ParameterShape).padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        LiquidToggle(
-            selected = { checked },
-            onSelect = onCheckedChange,
-            backdrop = LocalGlassBackdrop.current,
-            modifier = Modifier.semantics { contentDescription = label },
-        )
-    }
+    androidx.compose.material3.ListItem(
+        headlineContent = { Text(label) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = onCheckedChange) },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }

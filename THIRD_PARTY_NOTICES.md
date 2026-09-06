@@ -13,6 +13,10 @@ Vendored files retain their original package names under
 
 ### Application modifications in 1.5.0-demo
 
+The settings surface now uses stock Android Material 3 controls and does not
+render the vendored Liquid Glass controls. The dependency remains in the
+project for attribution and for the independent overlay/rendering module.
+
 - `components/LiquidSlider.kt`: latest value/callback holders; animation recreation when range or threshold changes; one 44dp-high press-and-drag target; clamped absolute coordinate mapping with RTL support; cancellation and multi-pointer cleanup; accessible range/set-progress semantics; default marker drawn beneath the thumb; cached capsule and iOS semantic accent colors. Original lens, highlight, damping, velocity stretch, shadows, and track backdrop composition remain.
 - `components/LiquidToggle.kt`: latest selection/callback holders; standard Switch toggle semantics and cancellation through Compose toggleable; 51×31dp track / 27dp thumb within a 51×44dp touch target; current-state synchronization; cached capsule. Original lens, highlight, damping and stretch remain; the custom drag gesture is replaced with a standard tap switch.
 - `components/LiquidButton.kt`: cached capsule shape and 44dp height. Original optical and interactive highlight implementation remains.
@@ -27,9 +31,8 @@ The following vendored files remain unmodified:
 `utils/InteractiveHighlight.kt`.
 The two bottom-tab components have no runtime usage in the settings interface.
 
-The app uses one screen-level Backdrop recording layer plus small control-local
-track layers. Settings groups are ordinary opaque system-color surfaces, not
-glass cards. No Apple restricted fonts or SF Symbols are bundled.
+Settings groups are ordinary opaque system-color surfaces using Material 3
+components. No Apple restricted fonts or SF Symbols are bundled.
 
 The unmodified Apache 2.0 license is stored in
 `licenses/AndroidLiquidGlass-LICENSE.txt`, packaged in APK assets, and readable

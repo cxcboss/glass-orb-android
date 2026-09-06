@@ -26,39 +26,6 @@ fun parseSettingsRoute(route: String): SettingsRoute = when (route) {
         ?: SettingsRoute.Home
 }
 
-data class SettingsNavigator(private val routes: List<SettingsRoute> = listOf(SettingsRoute.Home)) {
-    val current: SettingsRoute get() = routes.last()
-    val depth: Int get() = routes.size
-    fun push(route: SettingsRoute) = if (route == current || route == SettingsRoute.Home) this else copy(routes = routes + route)
-    fun pop() = if (depth > 1) copy(routes = routes.dropLast(1)) else this
-    fun save(): List<String> = routes.map {
-        when (it) {
-            SettingsRoute.Home -> "home"
-            SettingsRoute.OverlayDetails -> "overlay"
-            is SettingsRoute.ConfigGroupDetail -> "group:${it.group.name}"
-            SettingsRoute.Presets -> "presets"
-            SettingsRoute.DataManagement -> "data"
-            SettingsRoute.About -> "about"
-        }
-    }
-    companion object {
-        fun restore(saved: List<String>): SettingsNavigator {
-            var result = SettingsNavigator()
-            saved.forEach { key ->
-                val route = when (key) {
-                    "overlay" -> SettingsRoute.OverlayDetails
-                    "presets" -> SettingsRoute.Presets
-                    "data" -> SettingsRoute.DataManagement
-                    "about" -> SettingsRoute.About
-                    else -> ConfigGroup.entries.firstOrNull { key == "group:${it.name}" }?.let(SettingsRoute::ConfigGroupDetail)
-                }
-                if (route != null) result = result.push(route)
-            }
-            return result
-        }
-    }
-}
-
 enum class OverlayAction { RequestPermission, Show, Start, Hide, None }
 
 fun resolveOverlayAction(enabled: Boolean, permission: Boolean, status: OverlayRuntimeStatus): OverlayAction = when {
