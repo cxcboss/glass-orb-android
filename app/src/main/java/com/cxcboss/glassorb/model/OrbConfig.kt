@@ -109,7 +109,12 @@ data class OrbConfig(
                 orbDiameterDp = geometry.orbDiameterDp.safeRange(88f, 220f, defaults.geometry.orbDiameterDp),
                 outerMarginDp = geometry.outerMarginDp.safeRange(8f, 48f, defaults.geometry.outerMarginDp),
                 effectScale = geometry.effectScale.safeRange(0.9f, 1.5f, defaults.geometry.effectScale),
-                verticalOffsetDp = geometry.verticalOffsetDp.safeRange(-64f, 240f, defaults.geometry.verticalOffsetDp),
+                // Stored in dp for backwards-compatible JSON, while the
+                // settings UI exposes the physical 0..300 px range.
+                // Keep enough dp headroom for 300 physical px on low-density
+                // Android 10 devices; the settings surface still clamps the
+                // user-facing range to exactly 0..300 px.
+                verticalOffsetDp = geometry.verticalOffsetDp.safeRange(0f, 600f, defaults.geometry.verticalOffsetDp),
                 horizontalOffsetDp = geometry.horizontalOffsetDp.safeRange(-600f, 600f, defaults.geometry.horizontalOffsetDp),
                 touchAreaScale = geometry.touchAreaScale.safeRange(1f, 3f, defaults.geometry.touchAreaScale),
             ),

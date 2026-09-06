@@ -8,7 +8,9 @@ android {
 
     defaultConfig {
         applicationId = "com.cxcboss.glassorb"
-        minSdk = 26
+        // Android 10 is the lowest supported platform for the modern View
+        // surface and edge-to-edge/window insets behavior used by the app.
+        minSdk = 29
         targetSdk = 36
         versionCode = 6
         versionName = "1.5.0-demo"
@@ -36,6 +38,9 @@ android {
 }
 
 dependencies {
+    // Official Material 3 Views provide current Android controls without a
+    // Compose UI stack in this small native settings surface.
+    implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-ktx:1.12.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")

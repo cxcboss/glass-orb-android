@@ -34,6 +34,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun update(newConfig: OrbConfig) {
         val normalized = newConfig.normalized()
         mutableConfig.value = normalized
+        // Keep the overlay process in the same process frame as the slider.
+        // DataStore remains debounced below for persistence, but waiting for
+        // that IO path makes window geometry visibly lag behind the finger.
+        repository.publish(normalized)
         pendingSave?.cancel()
         pendingSave = viewModelScope.launch {
             delay(70)

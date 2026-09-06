@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="Theme.GlassOrb" parent="Theme.GlassOrb.Base">
-        <item name="android:windowLightNavigationBar">true</item>
-        <item name="android:navigationBarColor">#F2F2F7</item>
-    </style>
-</resources>

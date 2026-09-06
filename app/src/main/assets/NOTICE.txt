@@ -10,8 +10,9 @@ https://xiaolin.work/shaders/siri27/
 
 Apple 和 Siri 是 Apple Inc. 的商标；本演示与 Apple 无关，也未获得 Apple 认可。
 
-设置页液态按钮、滑条、开关、底栏及其交互辅助源码来自：
+设置页控件使用 Google 官方 Material 3 Android Views；以下项目仅作早期
+液态玻璃视觉参考，不随 APK 编译：
 https://github.com/Kyant0/AndroidLiquidGlass
 fixed reference commit: 65ab177e90e5c1d8c62e70cf7755841982da65f6
-Copyright 2025 Kyant，依据 Apache License 2.0 使用。
+Copyright 2025 Kyant。Apache License 2.0 归属与许可证仅作为参考记录保留。
 完整许可证：assets/AndroidLiquidGlass-LICENSE.txt

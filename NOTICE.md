@@ -18,15 +18,15 @@ Android 版 GLES 管线与动画行为参考上述固定提交，仅用于个人
 
 ## Settings UI reference
 
-Settings controls and floating navigation use source code from AndroidLiquidGlass at commit `65ab177e90e5c1d8c62e70cf7755841982da65f6`:
+The settings surface uses the official Material 3 Android Views (`material:1.14.0`)
+for toolbar, slider, switch, radio, text input and dialogs. AndroidLiquidGlass is
+retained only as an earlier design reference and is not bundled at runtime:
 
 - https://github.com/Kyant0/AndroidLiquidGlass
 - Copyright Kyant and contributors
 - Licensed under the Apache License, Version 2.0
 
-This demo directly compiles the reference repository's unmodified `LiquidButton`,
-`LiquidSlider`, `LiquidToggle`, `LiquidBottomTabs`, `LiquidBottomTab`, damped drag,
-drag inspection and interactive highlight source files. It links the published
-`io.github.kyant0:backdrop:2.0.1` and `io.github.kyant0:shapes:1.2.1` artifacts.
-Only the Kotlin Multiplatform frame-wait declaration has an Android single-platform
-adapter. See `THIRD_PARTY_NOTICES.md` and `licenses/AndroidLiquidGlass-LICENSE.txt`.
+This APK does not compile the reference repository's `LiquidButton`,
+`LiquidSlider`, `LiquidToggle`, `LiquidBottomTabs` or any of its drag/highlight
+source files, and does not link its published runtime artifacts. The glass-orb
+GLES renderer remains an independent port of the shader study above.

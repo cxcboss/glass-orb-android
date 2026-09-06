@@ -107,4 +107,16 @@ class OverlayLayoutTest {
         val visual = IntRect(left = 390, top = 96, right = 690, bottom = 198)
         assertEquals(visual, OverlayLayout.extendTouchBelowBlockedTop(visual, 72, 2280))
     }
+
+    @Test
+    fun `top offset is measured from the physical display edge`() {
+        val safe = IntRect(left = 0, top = 0, right = 1080, bottom = 2280)
+        val bounds = OverlayLayout.collapsedBounds(
+            geometry = GeometryConfig(verticalOffsetDp = 100f),
+            safeBoundsPx = safe,
+            density = 3f,
+        )
+
+        assertEquals(300, bounds.top)
+    }
 }

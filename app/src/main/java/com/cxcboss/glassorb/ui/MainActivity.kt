@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.graphics.Color
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -16,6 +17,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -45,12 +48,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        // Android 15/16 enforce edge-to-edge for modern target SDKs. Keep the
+        // content behind transparent system bars and apply their insets once
+        // to the root so every Material control retains its touch target.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         darkMode = isSystemDarkMode()
         updateSystemBars()
 
         val root = FrameLayout(this).apply {
             id = View.generateViewId()
+            clipToPadding = false
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+            )
+            view.setPadding(0, bars.top, 0, bars.bottom)
+            insets
         }
         settingsController = NativeSettingsController(
             activity = this,
@@ -70,6 +84,7 @@ class MainActivity : ComponentActivity() {
             ),
         )
         setContentView(root)
+        ViewCompat.requestApplyInsets(root)
         registerPredictiveBack()
         if (Build.VERSION.SDK_INT < 33) {
             onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -183,6 +198,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateSystemBars() {
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
         WindowCompat.getInsetsController(window, window.decorView).apply {
             isAppearanceLightStatusBars = !darkMode
             isAppearanceLightNavigationBars = !darkMode

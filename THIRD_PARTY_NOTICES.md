@@ -9,8 +9,8 @@
 - License: Apache License 2.0 — https://www.apache.org/licenses/LICENSE-2.0
 
 No source files from AndroidLiquidGlass are copied into the application. The
-settings surface uses ordinary opaque system-color surfaces and platform View
-controls. No Apple restricted fonts or SF Symbols are bundled.
+settings surface uses Material 3 Android Views and opaque system-color surfaces.
+No Apple restricted fonts or SF Symbols are bundled.
 
 The unmodified Apache 2.0 license is stored in
 `licenses/AndroidLiquidGlass-LICENSE.txt`, packaged in APK assets, and readable

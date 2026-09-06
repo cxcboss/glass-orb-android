@@ -27,15 +27,17 @@ void main() {
     float verticalFade = yFromTop <= uContainerBlack ? 1.0 : exp(-uContainerGauss * t * t);
     float edge = smoothstep(0.0, 0.14, min(effectUv.x, 1.0 - effectUv.x));
     float containerAlpha = clamp(uContainerStrength, 0.0, 1.0) * verticalFade * edge;
-    // The top band must be an opaque black continuation of the capsule. The
-    // previous port only increased alpha, leaving the wave RGB in the scene
-    // texture; the glass pass then exposed that RGB as a grey/coloured upper
-    // half. Compose the black field into both RGB and alpha before sampling it
-    // in the glass pass. Below the band the same gaussian mask preserves the
-    // configured soft fade into the transparent scene.
-    float topBlack = (yFromTop <= uContainerBlack) ? 1.0 : 0.0;
-    float blackMask = max(containerAlpha, topBlack * edge);
-    vec3 sceneRgb = effect.rgb * (1.0 - blackMask);
-    float sceneAlpha = max(effect.a, blackMask);
+    // The top band is an opaque black continuation of the capsule. Only that
+    // band is allowed to replace the generated RGB. Applying the gaussian
+    // container alpha to RGB as well makes the entire settled orb look like a
+    // black mask, because glass.frag samples RGB even in low-alpha areas.
+    // Below the band, keep the premultiplied effect RGB intact and compose the
+    // black field behind it through alpha (effect OVER container).
+    float topBlack = (yFromTop <= uContainerBlack) ? edge : 0.0;
+    float lowerContainerAlpha = containerAlpha * (1.0 - topBlack);
+    float inverseEffectAlpha = 1.0 - clamp(effect.a, 0.0, 1.0);
+    float sceneAlpha = clamp(effect.a + lowerContainerAlpha * inverseEffectAlpha, 0.0, 1.0);
+    vec3 sceneRgb = mix(effect.rgb, vec3(0.0), topBlack);
+    sceneAlpha = max(sceneAlpha, topBlack);
     outColor = vec4(sceneRgb, sceneAlpha);
 }

@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.GlassOrb.Base" parent="android:style/Theme.Material.NoActionBar">
+    <style name="Theme.GlassOrb.Base" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowBackground">#000000</item>
+        <item name="android:windowBackground">@color/app_surface_dark</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:navigationBarColor">@color/app_surface_dark</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:colorAccent">#0A84FF</item>
+        <item name="colorPrimary">@color/brand_blue_dark</item>
+        <item name="colorSecondary">@color/brand_blue_dark</item>
+        <item name="android:colorAccent">@color/brand_blue_dark</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
     <style name="Theme.GlassOrb" parent="Theme.GlassOrb.Base" />
 </resources>

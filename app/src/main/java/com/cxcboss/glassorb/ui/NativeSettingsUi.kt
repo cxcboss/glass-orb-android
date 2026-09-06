@@ -1,6 +1,5 @@
 package com.cxcboss.glassorb.ui
 
-import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -15,18 +14,12 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.PathInterpolator
-import android.widget.Button
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
-import android.widget.SeekBar
-import android.widget.Switch
 import android.widget.TextView
-import android.widget.Toolbar
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
@@ -38,13 +31,20 @@ import com.cxcboss.glassorb.model.OrbConfig
 import com.cxcboss.glassorb.overlay.OrbOverlayService
 import com.cxcboss.glassorb.overlay.OverlayRuntime
 import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.materialswitch.MaterialSwitch
+import com.google.android.material.radiobutton.MaterialRadioButton
+import com.google.android.material.slider.Slider
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import android.window.BackEvent
 import android.window.OnBackAnimationCallback
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import java.util.ArrayDeque
 import java.util.Locale
-import kotlin.math.pow
 import kotlin.math.roundToInt
 
 private fun ConfigGroup.title(): String = when (this) {
@@ -72,9 +72,9 @@ internal data class NativeSettingsCallbacks(
 )
 
 /**
- * Native Android settings surface. It intentionally uses platform widgets
- * (Toolbar, ScrollView, Switch, SeekBar, RadioButton, EditText and Button)
- * instead of a Compose or third-party control layer.
+ * Native Android settings surface. Layout remains ordinary Android Views while
+ * interactive controls use the official Material 3 View implementations. No
+ * app-specific imitation of sliders, switches or dialogs is used here.
  */
 internal class NativeSettingsController(
     private val activity: MainActivity,
@@ -152,7 +152,7 @@ internal class NativeSettingsController(
         val changed = config != value
         config = value
         // Sliders update the ViewModel continuously while the finger is down.
-        // Rebuilding the page for every sample would steal the SeekBar gesture.
+        // Rebuilding the page for every sample would steal the Material Slider gesture.
         // Discrete actions (reset, preset, switches and JSON import) are safe to
         // rebuild so the visible controls immediately reflect the new snapshot.
         if (changed && !sliderTracking && (stack.last() is Screen.Group || stack.last() == Screen.Presets)) {
@@ -203,11 +203,13 @@ internal class NativeSettingsController(
             setBackgroundColor(themeColor(android.R.attr.colorBackground))
         }
         val screen = stack.last()
-        val toolbar = Toolbar(activity).apply {
+        val toolbar = MaterialToolbar(activity).apply {
             title = screenTitle(screen)
             setTitleTextColor(themeColor(android.R.attr.textColorPrimary))
             setBackgroundColor(themeColor(android.R.attr.colorBackground))
-            elevation = dp(2f).toFloat()
+            // Material 3 uses a flat app bar; the edge tint only appears while
+            // content scrolls beneath it, so do not add a permanent shadow.
+            elevation = 0f
             minimumHeight = actionBarHeight()
         }
         if (screen !is Screen.Home) {
@@ -368,10 +370,21 @@ internal class NativeSettingsController(
         addSlider(content, "效果画布比例", config.geometry.effectScale, OrbConfig.reference().geometry.effectScale, 0.9f..1.5f, decimals = 2) { value ->
             updateConfig { current -> current.copy(geometry = current.geometry.copy(effectScale = value)) }
         }
-        addSlider(content, "顶部偏移", config.geometry.verticalOffsetDp, OrbConfig.reference().geometry.verticalOffsetDp, -64f..240f, "dp") { value ->
-            updateConfig { current -> current.copy(geometry = current.geometry.copy(verticalOffsetDp = value)) }
+        val verticalDensity = activity.resources.displayMetrics.density.coerceAtLeast(0.1f)
+        addSlider(
+            content,
+            "顶部偏移",
+            config.geometry.verticalOffsetDp * verticalDensity,
+            OrbConfig.reference().geometry.verticalOffsetDp * verticalDensity,
+            0f..300f,
+            "px",
+            decimals = 0,
+        ) { value ->
+            updateConfig { current ->
+                current.copy(geometry = current.geometry.copy(verticalOffsetDp = value / verticalDensity))
+            }
         }
-        addNote(content, "0 dp = 真实物理屏幕顶边。")
+        addNote(content, "0 px = 真实物理屏幕顶边，最多向下 300 px。")
         addSlider(content, "水平微调", config.geometry.horizontalOffsetDp, OrbConfig.reference().geometry.horizontalOffsetDp, -200f..200f, "dp") { value ->
             updateConfig { current -> current.copy(geometry = current.geometry.copy(horizontalOffsetDp = value)) }
         }
@@ -575,7 +588,7 @@ internal class NativeSettingsController(
             "柔和" to ConfigPreset.Soft,
             "明亮" to ConfigPreset.Bright,
         ).forEach { (name, preset) ->
-            val radio = RadioButton(activity).apply {
+            val radio = MaterialRadioButton(activity).apply {
                 text = name
                 textSize = 16f
                 minHeight = dp(48f)
@@ -606,8 +619,7 @@ internal class NativeSettingsController(
             Toast.makeText(activity, "JSON 已复制", Toast.LENGTH_SHORT).show()
         }
         addSubheading(content, "导入 JSON")
-        val input = EditText(activity).apply {
-            hint = "粘贴从本应用导出的 JSON"
+        val input = TextInputEditText(activity).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             gravity = Gravity.TOP or Gravity.START
             minLines = 8
@@ -615,7 +627,15 @@ internal class NativeSettingsController(
             setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
             contentDescription = "参数 JSON"
         }
-        content.addView(input, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(220f)))
+        val inputLayout = TextInputLayout(activity).apply {
+            hint = "粘贴从本应用导出的 JSON"
+            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
+            addView(input, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ))
+        }
+        content.addView(inputLayout, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(220f)))
         val error = TextView(activity).apply {
             setTextColor(themeColor(android.R.attr.colorAccent))
             visibility = View.GONE
@@ -668,7 +688,7 @@ internal class NativeSettingsController(
     }
 
     private fun addAnchor(group: RadioGroup, label: String, anchor: HorizontalAnchor) {
-        val radio = RadioButton(activity).apply {
+        val radio = MaterialRadioButton(activity).apply {
             text = label
             textSize = 16f
             minimumHeight = dp(48f)
@@ -677,7 +697,7 @@ internal class NativeSettingsController(
             setOnClickListener {
                 updateConfig { it.copy(geometry = it.geometry.copy(horizontalAnchor = anchor)) }
                 for (index in 0 until group.childCount) {
-                    (group.getChildAt(index) as? RadioButton)?.isChecked = index == group.indexOfChild(this)
+                    (group.getChildAt(index) as? MaterialRadioButton)?.isChecked = index == group.indexOfChild(this)
                 }
             }
         }
@@ -716,27 +736,42 @@ internal class NativeSettingsController(
             minWidth = dp(92f)
         }
         labels.addView(valueText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44f)))
-        lateinit var seek: SeekBar
+        lateinit var slider: Slider
         lateinit var updateLabels: (Float) -> Unit
-        val reset = Button(activity).apply {
+        val reset = MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonStyle).apply {
             text = "还原"
             minHeight = dp(44f)
+            minimumWidth = dp(64f)
+            insetTop = 0
+            insetBottom = 0
+            elevation = 0f
+            stateListAnimator = null
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.TRANSPARENT)
+            setTextColor(themeColor(android.R.attr.colorAccent))
+            contentDescription = "$label 还原默认值"
             setOnClickListener {
-                seek.progress = encodeSliderValue(defaultValue, range, decimals)
-                onValueChange(defaultValue)
-                updateLabels(defaultValue)
+                val restored = defaultValue.coerceIn(range)
+                slider.value = restored
+                updateLabels(restored)
+                onValueChange(restored)
             }
         }
         labels.addView(reset, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44f)))
         row.addView(labels, matchWrap())
 
-        seek = SeekBar(activity).apply {
+        val step = 1f / Math.pow(10.0, decimals.coerceIn(0, 3).toDouble()).toFloat()
+        slider = Slider(activity).apply {
             contentDescription = "$label 调节"
             minimumHeight = dp(48f)
-            max = sliderSteps(range, decimals)
-            progress = encodeSliderValue(value, range, decimals)
+            valueFrom = range.start
+            valueTo = range.endInclusive
+            stepSize = step
+            setValue(value.coerceIn(range))
+            // Keep the entire 48dp control target active, including the track
+            // ends, so a tap positions the thumb and a drag never gets lost.
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48f))
         }
-        row.addView(seek, matchWrap())
+        row.addView(slider)
         parent.addView(row, matchWrap())
 
         updateLabels = { current: Float ->
@@ -744,22 +779,21 @@ internal class NativeSettingsController(
             reset.visibility = if (isParameterModified(current, defaultValue, decimals)) View.VISIBLE else View.INVISIBLE
         }
         updateLabels(value)
-        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
-                if (!fromUser) return
-                val next = decodeSliderValue(progress, range, decimals)
-                updateLabels(next)
-                onValueChange(next)
-            }
-
-            override fun onStartTrackingTouch(seekBar: SeekBar) {
+        slider.addOnChangeListener(Slider.OnChangeListener { _, next, fromUser ->
+            if (!fromUser) return@OnChangeListener
+            val snapped = next.coerceIn(range)
+            updateLabels(snapped)
+            onValueChange(snapped)
+        })
+        slider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: Slider) {
                 sliderTracking = true
                 if (parameterId == ParameterId.TouchAreaScale && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
                     OrbOverlayService.setTouchPreview(activity, true)
                 }
             }
 
-            override fun onStopTrackingTouch(seekBar: SeekBar) {
+            override fun onStopTrackingTouch(slider: Slider) {
                 sliderTracking = false
                 if (parameterId == ParameterId.TouchAreaScale && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
                     OrbOverlayService.setTouchPreview(activity, false)
@@ -785,7 +819,7 @@ internal class NativeSettingsController(
         }
         val labels = labelColumn(title, detail)
         row.addView(labels, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val toggle = Switch(activity).apply {
+        val toggle = MaterialSwitch(activity).apply {
             isChecked = checked
             contentDescription = title
             setOnCheckedChangeListener { _, value -> onChanged(value) }
@@ -905,7 +939,7 @@ internal class NativeSettingsController(
     }
 
     private fun confirmResetGroup(group: ConfigGroup) {
-        AlertDialog.Builder(activity)
+        MaterialAlertDialogBuilder(activity)
             .setTitle("恢复本组默认参数？")
             .setMessage("仅恢复“${group.title()}”中的参数。")
             .setNegativeButton("取消", null)
@@ -917,7 +951,7 @@ internal class NativeSettingsController(
     }
 
     private fun confirmResetAll() {
-        AlertDialog.Builder(activity)
+        MaterialAlertDialogBuilder(activity)
             .setTitle("恢复全部默认参数？")
             .setMessage("七组配置都会恢复为参考原版，当前悬浮球状态不会改变。")
             .setNegativeButton("取消", null)
@@ -943,22 +977,6 @@ internal class NativeSettingsController(
         OverlayRuntimeStatus.Hidden -> "已隐藏"
         OverlayRuntimeStatus.PermissionRequired -> "需要权限"
         is OverlayRuntimeStatus.Error -> "运行异常"
-    }
-
-    private fun sliderSteps(range: ClosedFloatingPointRange<Float>, decimals: Int): Int {
-        val multiplier = 10.0.pow(decimals.coerceIn(0, 3)).toFloat()
-        return ((range.endInclusive - range.start) * multiplier).roundToInt().coerceAtLeast(1)
-    }
-
-    private fun encodeSliderValue(value: Float, range: ClosedFloatingPointRange<Float>, decimals: Int): Int {
-        val multiplier = 10.0.pow(decimals.coerceIn(0, 3)).toFloat()
-        return ((value.coerceIn(range) - range.start) * multiplier).roundToInt().coerceIn(0, sliderSteps(range, decimals))
-    }
-
-    private fun decodeSliderValue(progress: Int, range: ClosedFloatingPointRange<Float>, decimals: Int): Float {
-        val multiplier = 10.0.pow(decimals.coerceIn(0, 3)).toFloat()
-        return (range.start + progress.coerceIn(0, sliderSteps(range, decimals)) / multiplier)
-            .coerceIn(range)
     }
 
     private fun formatParameter(value: Float, suffix: String, decimals: Int): String = buildString {

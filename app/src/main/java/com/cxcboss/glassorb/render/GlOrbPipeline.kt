@@ -85,7 +85,10 @@ internal class GlOrbPipeline(
         val anchorTopDp = if (snapshot.preview) {
             ((height / density) - previewMetrics.heightDp * visualScale) * 0.5f
         } else {
-            (2f + snapshot.capsuleTopOffsetDp) * displayDensity / density
+            // The window origin is already the physical display edge. Do not
+            // add a hidden 2dp inset here: it made a configured 0px offset
+            // render below the real top and broke the capsule/ball anchor.
+            snapshot.capsuleTopOffsetDp * displayDensity / density
         }
         val metrics = ShapeMetrics.interpolate(
             geometry = config.geometry,

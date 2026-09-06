@@ -4,19 +4,19 @@
 
 ## 1.5.0-demo
 
-本版重构 App 内设置页：采用 Android 平台原生 `Toolbar`、`ScrollView`、`Switch`、`SeekBar`、`RadioButton`、`EditText` 和 `AlertDialog`，跟随系统浅深色和标准列表。移除底栏、底部参数弹层、内置 GLES 实时预览和彩色背景；设置页不再持续提交渲染帧。二级页面由轻量原生导航栈管理，返回按钮、系统返回和 Android 预测性返回手势共享同一栈。
+本版重构 App 内设置页：采用官方 Material 3 View（`MaterialToolbar`、`MaterialSwitch`、`Slider`、`MaterialRadioButton`、`TextInputLayout` 和 `MaterialAlertDialogBuilder`）配合 Android 原生列表容器，跟随系统浅深色和 edge-to-edge 安全区。移除底栏、底部参数弹层、内置 GLES 实时预览和彩色背景；设置页不再持续提交渲染帧。二级页面由轻量原生导航栈管理，返回按钮、系统返回和 Android 预测性返回手势共享同一栈。
 
 首页依次为悬浮球、外观、交互、参数、关于。总开关仅在悬浮球正在显示时开启：无权限时进入授权，已隐藏时显示，其余状态启动；关闭时隐藏。启动、显示、隐藏和停止操作均可在「运行与权限」详情页使用，停止需确认。
 
 七个参数分组使用独立 `ScrollView` 页面，保留全部参数范围、单位、精度、位置预设和依赖显示。每条滑杆显示默认值标记，偏离默认值时显示「还原」；分组与全部恢复均需确认。触摸区域倍率调节期间仍显示悬浮层红框，触发使用显式参数 ID，不依赖界面文案。
 
-设置控件全部采用 Android 平台原生实现：`SeekBar`、`Switch`、`RadioButton`、`EditText`、`Toolbar`、`ScrollView` 和标准 `AlertDialog`。分组内容使用系统色面，不叠加装饰性玻璃、渐变或阴影。未引入 Apple 字体或 SF Symbols；AndroidLiquidGlass 仅保留来源说明，不参与设置页控件或运行时依赖。
+设置控件全部使用 Google 官方 Material 3 Android View 实现，不再使用旧式平台 `SeekBar` / `Switch` / `Toolbar`。分组内容使用 Material 3 系统色面，不叠加装饰性玻璃、渐变或阴影；滑块整条 48dp 区域可点击和连续拖动，偏离默认值会出现单项「还原」。未引入 Apple 字体或 SF Symbols；AndroidLiquidGlass 仅保留来源说明，不参与设置页运行时依赖。
 
 玻璃球模型、数据、悬浮窗和运动参数保持兼容；本版仅修正暗场合成，使胶囊和球体上部的纯黑区域不会泄漏波形 RGB。配置 schema 与默认值保持原样。覆盖安装保留现有参数。版本为 versionCode 6 / versionName 1.5.0-demo。
 
 ## 安装与使用
 
-1. 安装 `dist/灵动玻璃球-demo.apk`，要求 Android 8.0 / API 26 及以上、GLES 3.0。
+1. 安装 `dist/灵动玻璃球-demo.apk`，要求 Android 10 / API 29 及以上、GLES 3.0。
 2. 打开 App 并开启「显示悬浮球」；首次进入系统授权页，允许「显示在其他应用上层」后返回，再开启开关。
 3. Android 13 及以上建议允许通知，以便使用显示、隐藏、停止动作。
 4. 回到桌面或普通 App：点击胶囊展开；单击小球短暂切换思考圆点；上滑小球收回胶囊。
@@ -49,7 +49,7 @@
 
 ## 本地构建
 
-AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin。compileSdk 37 / targetSdk 36 / minSdk 26；Java 17 字节码，当前主机使用 JDK 21。
+AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin。compileSdk 37 / targetSdk 36（Android 16）/ minSdk 29（Android 10）；Java 17 字节码，当前主机使用 JDK 21。设置控件来自 `com.google.android.material:material:1.14.0`，并使用 Android 16 的 edge-to-edge 窗口行为。
 
 在 `local.properties` 设置 `sdk.dir` 后执行：
 

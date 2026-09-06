@@ -34,6 +34,7 @@ class OrbConfigTest {
                 capsuleWidthDp = -40f,
                 capsuleHeightDp = 500f,
                 orbDiameterDp = 170f,
+                verticalOffsetDp = -4f,
             ),
             glass = OrbConfig.reference().glass.copy(curvature = 5f),
             motion = OrbConfig.reference().motion.copy(
@@ -50,6 +51,7 @@ class OrbConfigTest {
         assertEquals(24f, config.geometry.capsuleWidthDp, 0f)
         assertEquals(64f, config.geometry.capsuleHeightDp, 0f)
         assertEquals(170f, config.geometry.orbDiameterDp, 0f)
+        assertEquals(0f, config.geometry.verticalOffsetDp, 0f)
         assertEquals(1f, config.glass.curvature, 0f)
         assertEquals(24f, config.motion.collapseRangeDp, 0f)
         assertEquals(160f, config.motion.dragRangeDp, 0f)
@@ -99,5 +101,14 @@ class OrbConfigTest {
         assertEquals(34f, restored.geometry.capsuleHeightDp, 0f)
         assertEquals(OrbConfig.reference().glass, restored.glass)
         assertEquals(1.5f, restored.motion.dragResistance, 0f)
+    }
+
+    @Test
+    fun `physical top offset keeps the new 600dp compatibility ceiling`() {
+        val config = OrbConfig.reference().copy(
+            geometry = OrbConfig.reference().geometry.copy(verticalOffsetDp = 800f),
+        ).normalized()
+
+        assertEquals(600f, config.geometry.verticalOffsetDp, 0f)
     }
 }
