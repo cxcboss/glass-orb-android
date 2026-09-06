@@ -23,7 +23,7 @@ class MainActivityTest {
         composeRule.onNodeWithText("概览").assertDoesNotExist()
         composeRule.onNodeWithText("玻璃").performClick()
         composeRule.onNodeWithText("内部深度").assertIsDisplayed()
-        composeRule.onNodeWithText("‹ 返回").performClick()
+        composeRule.onNodeWithContentDescription("返回").performClick()
         composeRule.onNodeWithText("灵动玻璃球").assertIsDisplayed()
     }
 
@@ -31,7 +31,7 @@ class MainActivityTest {
     fun jsonImportIsAFullPageAndInvalidInputShowsInlineFeedback() {
         composeRule.onNodeWithTag("settings-list").performScrollToNode(hasText("导入与导出"))
         composeRule.onNodeWithText("导入与导出").performClick()
-        composeRule.onNodeWithContentDescription("参数 JSON").assertIsDisplayed()
+        composeRule.onNodeWithText("参数 JSON").assertIsDisplayed()
         composeRule.onNodeWithTag("settings-list").performScrollToNode(hasText("导入参数"))
         composeRule.onNodeWithText("导入参数").performClick()
         composeRule.onNodeWithText("请先粘贴参数 JSON").assertIsDisplayed()
