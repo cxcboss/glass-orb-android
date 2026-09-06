@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -490,9 +491,20 @@ private fun SettingsListItem(
             headlineContent = { Text(title, color = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
             supportingContent = detail?.let { { Text(it) } },
             trailingContent = trailing ?: if (onClick != null && !destructive) {
-                { Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                {
+                    Icon(
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             } else null,
-            modifier = modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+            modifier = modifier.fillMaxWidth().then(
+                if (onClick != null) Modifier
+                    .clickable(onClick = onClick)
+                    .semantics { role = Role.Button }
+                else Modifier,
+            ),
         )
         HorizontalDivider(Modifier.padding(start = 16.dp), thickness = 0.5.dp)
     }
