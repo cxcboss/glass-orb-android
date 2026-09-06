@@ -51,6 +51,8 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import com.cxcboss.glassorb.ui.SliderGestureAxis
+import com.cxcboss.glassorb.ui.sliderGestureAxis
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
@@ -112,27 +114,54 @@ fun LiquidSlider(
                 }
                 .pointerInput(dampedDragAnimation, isLtr, valueRange) {
                     awaitEachGesture {
-                        val down = awaitFirstDown()
-                        down.consume()
-                        latestInteraction(true)
-                        dampedDragAnimation.press()
+                        // Keep the initial down unconsumed so a vertical swipe
+                        // starting on this full-width target can be claimed by
+                        // the parent LazyColumn after touch slop.
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val touchSlop = viewConfiguration.touchSlop
+                        var dragging = false
                         fun update(x: Float) {
                             val next = sliderValueAt(x, size.width.toFloat(), valueRange, !isLtr)
                             dampedDragAnimation.updateValue(next)
                             latestChange(next)
                         }
                         try {
-                            update(down.position.x)
-                            do {
+                            while (true) {
                                 val event = awaitPointerEvent()
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (!change.pressed || change.isConsumed || event.changes.count { it.pressed } > 1) break
+                                if (event.changes.count { it.pressed } > 1) break
+                                if (!change.pressed) {
+                                    // A stationary press is a track tap. Commit
+                                    // it on up, after giving the parent a chance
+                                    // to claim a vertical gesture.
+                                    if (!dragging) update(change.position.x)
+                                    break
+                                }
+                                if (change.isConsumed) break
+
+                                if (!dragging) {
+                                    when (sliderGestureAxis(
+                                        change.position.x - down.position.x,
+                                        change.position.y - down.position.y,
+                                        touchSlop,
+                                    )) {
+                                        SliderGestureAxis.Undecided -> continue
+                                        SliderGestureAxis.Vertical -> break
+                                        SliderGestureAxis.Horizontal -> {
+                                            dragging = true
+                                            latestInteraction(true)
+                                            dampedDragAnimation.press()
+                                        }
+                                    }
+                                }
                                 update(change.position.x)
                                 change.consume()
-                            } while (true)
+                            }
                         } finally {
-                            latestInteraction(false)
-                            dampedDragAnimation.release()
+                            if (dragging) {
+                                latestInteraction(false)
+                                dampedDragAnimation.release()
+                            }
                         }
                     }
                 },

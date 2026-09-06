@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -443,8 +444,21 @@ private fun ParameterSlider(
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
             )
-            if (isParameterModified(value, defaultValue, decimals)) {
-                Text("还原", Modifier.clickable { onValueChange(restoreParameter(defaultValue)) }.padding(12.dp), color = MaterialTheme.colorScheme.primary)
+            val isModified = isParameterModified(value, defaultValue, decimals)
+            // Reserve the reset action slot even when it is hidden. This keeps
+            // the row and slider at a stable y-position during a drag.
+            Box(
+                Modifier.width(56.dp).height(44.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (isModified) {
+                    Text(
+                        "还原",
+                        Modifier.clickable { onValueChange(restoreParameter(defaultValue)) }
+                            .padding(horizontal = 6.dp, vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
         val context = LocalContext.current

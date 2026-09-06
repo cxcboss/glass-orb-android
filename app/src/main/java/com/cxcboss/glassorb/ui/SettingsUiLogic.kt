@@ -63,6 +63,22 @@ fun sliderValueAt(x: Float, width: Float, range: ClosedFloatingPointRange<Float>
     return (range.start + (if (rtl) 1f - fraction else fraction) * (range.endInclusive - range.start)).coerceIn(range)
 }
 
+enum class SliderGestureAxis {
+    Undecided,
+    Horizontal,
+    Vertical,
+}
+
+/** Locks a slider to the axis that wins touch slop. */
+fun sliderGestureAxis(deltaX: Float, deltaY: Float, touchSlop: Float): SliderGestureAxis {
+    val x = abs(deltaX)
+    val y = abs(deltaY)
+    val slop = touchSlop.coerceAtLeast(0f)
+    if (!x.isFinite() || !y.isFinite() || maxOf(x, y) < slop) return SliderGestureAxis.Undecided
+    if (x == y) return SliderGestureAxis.Undecided
+    return if (x > y) SliderGestureAxis.Horizontal else SliderGestureAxis.Vertical
+}
+
 fun isParameterModified(value: Float, defaultValue: Float, decimals: Int): Boolean =
     abs(value - defaultValue) >= 0.5f * 10f.pow(-decimals)
 

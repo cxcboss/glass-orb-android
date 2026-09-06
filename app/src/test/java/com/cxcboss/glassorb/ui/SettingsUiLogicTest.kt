@@ -38,6 +38,13 @@ class SettingsUiLogicTest {
         assertEquals(-20f, sliderValueAt(10f, 0f, -20f..80f, false), 0f)
     }
 
+    @Test fun sliderLocksToHorizontalOnlyAfterTouchSlop() {
+        assertEquals(SliderGestureAxis.Undecided, sliderGestureAxis(3f, 3f, 8f))
+        assertEquals(SliderGestureAxis.Horizontal, sliderGestureAxis(12f, 4f, 8f))
+        assertEquals(SliderGestureAxis.Vertical, sliderGestureAxis(4f, -12f, 8f))
+        assertEquals(SliderGestureAxis.Undecided, sliderGestureAxis(Float.NaN, 4f, 8f))
+    }
+
     @Test fun defaultComparisonMatchesDisplayedPrecisionAndRestoresExactDefault() {
         assertFalse(isParameterModified(1.004f, 1f, 2))
         assertTrue(isParameterModified(1.01f, 1f, 2))
