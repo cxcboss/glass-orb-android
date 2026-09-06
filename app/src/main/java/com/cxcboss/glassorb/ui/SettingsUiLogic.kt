@@ -14,6 +14,18 @@ sealed interface SettingsRoute {
     data object About : SettingsRoute
 }
 
+fun routeFor(group: ConfigGroup): String = "group/${group.name}"
+
+fun parseSettingsRoute(route: String): SettingsRoute = when (route) {
+    "overlay" -> SettingsRoute.OverlayDetails
+    "presets" -> SettingsRoute.Presets
+    "data" -> SettingsRoute.DataManagement
+    "about" -> SettingsRoute.About
+    else -> ConfigGroup.entries.firstOrNull { route == routeFor(it) }
+        ?.let(SettingsRoute::ConfigGroupDetail)
+        ?: SettingsRoute.Home
+}
+
 data class SettingsNavigator(private val routes: List<SettingsRoute> = listOf(SettingsRoute.Home)) {
     val current: SettingsRoute get() = routes.last()
     val depth: Int get() = routes.size
