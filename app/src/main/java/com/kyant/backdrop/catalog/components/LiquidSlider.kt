@@ -53,6 +53,7 @@ import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import com.cxcboss.glassorb.ui.SliderGestureAxis
 import com.cxcboss.glassorb.ui.sliderGestureAxis
+import com.cxcboss.glassorb.ui.shouldCommitSliderTap
 import kotlinx.coroutines.flow.collectLatest
 
 @Composable
@@ -132,9 +133,12 @@ fun LiquidSlider(
                                 if (event.changes.count { it.pressed } > 1) break
                                 if (!change.pressed) {
                                     // A stationary press is a track tap. Commit
-                                    // it on up, after giving the parent a chance
-                                    // to claim a vertical gesture.
-                                    if (!dragging) update(change.position.x)
+                                    // it only on a real up. Cancellation is
+                                    // represented by a consumed up-like event
+                                    // and must not persist a new value.
+                                    if (shouldCommitSliderTap(dragging, change.pressed, change.isConsumed)) {
+                                        update(change.position.x)
+                                    }
                                     break
                                 }
                                 if (change.isConsumed) break

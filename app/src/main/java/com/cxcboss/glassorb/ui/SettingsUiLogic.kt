@@ -79,6 +79,9 @@ fun sliderGestureAxis(deltaX: Float, deltaY: Float, touchSlop: Float): SliderGes
     return if (x > y) SliderGestureAxis.Horizontal else SliderGestureAxis.Vertical
 }
 
+fun shouldCommitSliderTap(dragging: Boolean, pressed: Boolean, consumed: Boolean): Boolean =
+    !dragging && !pressed && !consumed
+
 fun isParameterModified(value: Float, defaultValue: Float, decimals: Int): Boolean =
     abs(value - defaultValue) >= 0.5f * 10f.pow(-decimals)
 

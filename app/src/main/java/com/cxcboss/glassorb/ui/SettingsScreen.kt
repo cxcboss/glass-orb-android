@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
@@ -100,7 +101,12 @@ fun SettingsScreen(
     }
     val backdrop = rememberLayerBackdrop()
     val stateHolder = rememberSaveableStateHolder()
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+    ) {
+      Box(Modifier.fillMaxSize()) {
         // A single screen-level recording layer. Controls may also record their tiny tracks.
         Box(Modifier.fillMaxSize().layerBackdrop(backdrop).background(MaterialTheme.colorScheme.background))
         CompositionLocalProvider(LocalGlassBackdrop provides backdrop) {
@@ -275,6 +281,7 @@ fun SettingsScreen(
                 }
             }
         }
+      }
     }
 }
 

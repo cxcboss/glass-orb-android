@@ -45,6 +45,12 @@ class SettingsUiLogicTest {
         assertEquals(SliderGestureAxis.Undecided, sliderGestureAxis(Float.NaN, 4f, 8f))
     }
 
+    @Test fun cancelledTapDoesNotCommitSliderValue() {
+        assertTrue(shouldCommitSliderTap(dragging = false, pressed = false, consumed = false))
+        assertFalse(shouldCommitSliderTap(dragging = false, pressed = false, consumed = true))
+        assertFalse(shouldCommitSliderTap(dragging = true, pressed = false, consumed = false))
+    }
+
     @Test fun defaultComparisonMatchesDisplayedPrecisionAndRestoresExactDefault() {
         assertFalse(isParameterModified(1.004f, 1f, 2))
         assertTrue(isParameterModified(1.01f, 1f, 2))
