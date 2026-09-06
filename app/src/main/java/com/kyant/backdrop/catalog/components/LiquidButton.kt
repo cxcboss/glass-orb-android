@@ -43,6 +43,7 @@ fun LiquidButton(
     content: @Composable RowScope.() -> Unit
 ) {
     val animationScope = rememberCoroutineScope()
+    val capsule = remember { Capsule() }
 
     val interactiveHighlight = remember(animationScope) {
         InteractiveHighlight(
@@ -54,7 +55,7 @@ fun LiquidButton(
         modifier
             .drawBackdrop(
                 backdrop = backdrop,
-                shape = { Capsule() },
+                shape = { capsule },
                 effects = {
                     vibrancy()
                     blur(2f.dp.toPx())
@@ -113,7 +114,7 @@ fun LiquidButton(
                     Modifier
                 }
             )
-            .height(48f.dp)
+            .height(44f.dp)
             .padding(horizontal = 16f.dp),
         horizontalArrangement = Arrangement.spacedBy(8f.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,

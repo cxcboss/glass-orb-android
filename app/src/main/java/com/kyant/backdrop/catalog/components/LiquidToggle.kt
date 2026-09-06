@@ -1,13 +1,15 @@
 package com.kyant.backdrop.catalog.components
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -63,70 +65,47 @@ fun LiquidToggle(
     val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
     val dragWidth = with(density) { 20f.dp.toPx() }
     val animationScope = rememberCoroutineScope()
-    var didDrag by remember { mutableStateOf(false) }
-    var fraction by remember { mutableFloatStateOf(if (selected()) 1f else 0f) }
+    val latestSelected by rememberUpdatedState(selected)
+    val latestSelect by rememberUpdatedState(onSelect)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val capsule = remember { Capsule() }
     val dampedDragAnimation = remember(animationScope) {
         DampedDragAnimation(
-            animationScope = animationScope,
-            initialValue = fraction,
-            valueRange = 0f..1f,
-            visibilityThreshold = 0.001f,
-            initialScale = 1f,
-            pressedScale = 1.5f,
-            onDragStarted = {},
-            onDragStopped = {
-                if (didDrag) {
-                    fraction = if (targetValue >= 0.5f) 1f else 0f
-                    onSelect(fraction == 1f)
-                    didDrag = false
-                } else {
-                    fraction = if (selected()) 0f else 1f
-                    onSelect(fraction == 1f)
-                }
-            },
-            onDrag = { _, dragAmount ->
-                if (!didDrag) {
-                    didDrag = dragAmount.x != 0f
-                }
-                val delta = dragAmount.x / dragWidth
-                fraction =
-                    if (isLtr) (fraction + delta).fastCoerceIn(0f, 1f)
-                    else (fraction - delta).fastCoerceIn(0f, 1f)
-            }
+            animationScope = animationScope, initialValue = if (selected()) 1f else 0f,
+            valueRange = 0f..1f, visibilityThreshold = .001f,
+            initialScale = 1f, pressedScale = 1.25f,
+            onDragStarted = {}, onDragStopped = {}, onDrag = { _, _ -> },
         )
     }
     LaunchedEffect(dampedDragAnimation) {
-        snapshotFlow { fraction }
-            .collectLatest { fraction ->
-                dampedDragAnimation.updateValue(fraction)
-            }
+        snapshotFlow { latestSelected() }.collectLatest {
+            dampedDragAnimation.updateValue(if (it) 1f else 0f)
+        }
     }
-    LaunchedEffect(selected) {
-        snapshotFlow { selected() }
-            .collectLatest { isSelected ->
-                val target = if (isSelected) 1f else 0f
-                if (target != fraction) {
-                    fraction = target
-                    dampedDragAnimation.animateToValue(target)
-                }
-            }
+    LaunchedEffect(pressed) {
+        if (pressed) dampedDragAnimation.press() else dampedDragAnimation.release()
     }
 
     val trackBackdrop = rememberLayerBackdrop()
 
     Box(
-        modifier,
+        modifier.size(51.dp, 44.dp).toggleable(
+            value = latestSelected(), role = Role.Switch,
+            interactionSource = interaction, indication = null,
+            onValueChange = { latestSelect(it) },
+        ),
         contentAlignment = Alignment.CenterStart
     ) {
         Box(
             Modifier
                 .layerBackdrop(trackBackdrop)
-                .clip(Capsule())
+                .clip(capsule)
                 .drawBehind {
                     val fraction = dampedDragAnimation.value
                     drawRect(lerp(trackColor, accentColor, fraction))
                 }
-                .size(64f.dp, 28f.dp)
+                .size(51.dp, 31.dp)
         )
 
         Box(
@@ -138,10 +117,7 @@ fun LiquidToggle(
                         if (isLtr) lerp(padding, padding + dragWidth, fraction)
                         else lerp(-padding, -(padding + dragWidth), fraction)
                 }
-                .semantics {
-                    role = Role.Switch
-                }
-                .then(dampedDragAnimation.modifier)
+
                 .drawBackdrop(
                     backdrop = rememberCombinedBackdrop(
                         backdrop,
@@ -154,7 +130,7 @@ fun LiquidToggle(
                             }
                         }
                     ),
-                    shape = { Capsule() },
+                    shape = { capsule },
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
                         blur(8f.dp.toPx() * (1f - progress))
@@ -197,7 +173,7 @@ fun LiquidToggle(
                         drawRect(Color.White.copy(alpha = 1f - progress))
                     }
                 )
-                .size(40f.dp, 24f.dp)
+                .size(27.dp, 27.dp)
         )
     }
 }

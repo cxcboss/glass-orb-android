@@ -15,11 +15,11 @@ private val GlassOrbColors = darkColorScheme(
     secondary = Color(0xFF30D158),
     onSecondary = Color.Black,
     background = Color.Black,
-    onBackground = Color(0xFFF2F2F7),
+    onBackground = Color.White,
     surface = Color(0xFF1C1C1E),
-    onSurface = Color(0xFFF2F2F7),
+    onSurface = Color.White,
     surfaceVariant = Color(0xFF2C2C2E),
-    onSurfaceVariant = Color(0xFFAEAEB2),
+    onSurfaceVariant = Color(0xFF8E8E93),
     outline = Color(0xFF48484A),
     error = Color(0xFFFF453A),
 )
@@ -27,10 +27,10 @@ private val GlassOrbColors = darkColorScheme(
 private val LightColors = lightColorScheme(
     primary = Color(0xFF007AFF), onPrimary = Color.White,
     primaryContainer = Color(0xFFE5F0FF), onPrimaryContainer = Color(0xFF0055B3),
-    secondary = Color(0xFF248A3D), onSecondary = Color.White,
-    background = Color(0xFFF2F2F7), onBackground = Color(0xFF1C1C1E),
-    surface = Color.White, onSurface = Color(0xFF1C1C1E),
-    surfaceVariant = Color(0xFFE5E5EA), onSurfaceVariant = Color(0xFF636366),
+    secondary = Color(0xFF34C759), onSecondary = Color.White,
+    background = Color(0xFFF2F2F7), onBackground = Color.Black,
+    surface = Color.White, onSurface = Color.Black,
+    surfaceVariant = Color(0xFFE5E5EA), onSurfaceVariant = Color(0xFF8E8E93),
     outline = Color(0xFFC6C6C8), error = Color(0xFFFF3B30),
 )
 

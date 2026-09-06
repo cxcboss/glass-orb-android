@@ -1,91 +1,73 @@
 # 灵动玻璃球 · Android UI Demo
 
-纯黑灵动岛胶囊，点击舒缓展开为透明玻璃球。原生 Kotlin / Compose 设置页，TextureView / EGL / OpenGL ES 3.0 悬浮渲染，无 WebView。
+纯黑灵动岛胶囊，点击舒缓展开为透明玻璃球。Kotlin / Compose 设置页，TextureView / EGL / OpenGL ES 3.0 悬浮渲染，无 WebView。
 
-### 1.4.0-demo 更新
+## 1.5.0-demo
 
-- 不再自行模拟 AndroidLiquidGlass 控件：直接编译参考提交中的 `LiquidButton`、`LiquidSlider`、`LiquidToggle`、`LiquidBottomTabs`、`LiquidBottomTab`，以及其阻尼拖动、手势检查和交互高光源码；8 个文件与参考提交逐字节一致。
-- 补齐参考工程使用的 `shapes 1.2.1`，并保持 `Backdrop 2.0.1`；`compileSdk` 固定为 37，`targetSdk` 保持 36。
-- 主界面加入随系统深浅色变化的低对比色场，让原始 blur / lens / vibrancy 真实作用在可辨识的 Backdrop 上。
-- 修复浅色背景下展开/收起过程中半成形胶囊过早透明造成的发白：只延后形变期间的透明度过渡，稳定胶囊仍为纯黑，完全展开后的玻璃材质与色彩不变。
-- 深色定位描边增加系统主题二次校验，并在“显示悬浮层”时同步刷新 App 外观状态，避免旧的深色状态在浅色模式残留。
-- 胶囊位于物理屏幕顶部时，系统状态栏覆盖的输入高度会等量延伸到状态栏下方；红框预览显示实际扩展后的触控窗口。Android 的状态栏本身仍高于普通应用悬浮窗，受保护的那部分像素不能被 `TYPE_APPLICATION_OVERLAY` 抢占。
+本版重构 App 内设置页：采用 iOS 26 设置层级、系统浅深色、不透明分组与居中二级标题。移除底栏、底部参数弹层、内置 GLES 实时预览和彩色背景；设置页不再持续提交渲染帧。导航采用约 360ms 横向过渡，返回按钮与 Android 系统返回共享导航栈，根页交由系统退出；当前使用普通系统返回，未提供预测返回进度预览。
 
-### 1.3.0-demo 更新
+首页依次为悬浮球、外观、交互、参数、关于。总开关仅在悬浮球正在显示时开启：无权限时进入授权，已隐藏时显示，其余状态启动；关闭时隐藏。启动、显示、隐藏和停止操作均可在「运行与权限」详情页使用，停止需确认。
 
-- 顶部位置使用物理显示坐标，并关闭系统窗口 Insets 自动避让；`0dp` 可进入状态栏／刘海所在的真实屏幕顶边区域。
-- 拖动触摸区域倍率时，悬浮层以红色边框实时显示实际触摸窗口。
-- 二级设置页向下退出；可拖动顶部把手下滑关闭，未超过阈值时弹回。
-- 直接集成 AndroidLiquidGlass 的 Backdrop 2.0.1 渲染管线，卡片、按钮、滑杆、开关和底栏采用其 blur、lens、vibrancy、高光、内阴影与阻尼缩放结构。
+七个参数分组使用独立 LazyColumn 页面，保留全部参数范围、单位、精度、位置预设和依赖显示。每条滑杆显示默认值标记，偏离默认值时显示「还原」；分组与全部恢复均需确认。触摸区域倍率调节期间仍显示悬浮层红框，触发使用显式布尔标记，不依赖界面文案。
 
-- 保留原有玻璃材质与 shader；展开和收起以顶部为锚点。
-- 上滑连续压缩形状，松手衔接当前速度；收起允许轻微负向回弹。
-- 横向／向下拖动采用渐增阻力，位移最多 8dp、形变最多 2%，松手弹回，不改变保存的位置。
-- 胶囊与球体共用一块固定透明渲染画布，动画不再触发 TextureView / EGL 换尺寸；独立透明触摸窗口只覆盖当前可交互形状，避免展开、收起跳帧和大矩形拦截下层应用。
-- 胶囊与展开动画默认 120fps；移除 GL 线程的重复定时渲染，设置页预览限制为 60fps，降低主界面 GPU 压力。
-- 胶囊宽度最小可与高度一致，顶部偏移 0 可贴齐屏幕顶边；可选 1–3 倍胶囊触摸区域。
-- 增加自动收起开关和 1–60 秒倒计时。深色模式打开设置 App 时，收起胶囊显示细白色定位边缘，离开 App 或展开后消失。
-- 所有参数分类改为自下而上的二级叠层页；每条滑杆显示默认值定位点和独立复位按钮。
-- 设置页采用 AndroidLiquidGlass 示例的胶囊、高光、按压膨胀、阻尼滑动思路，包含可拖动的悬浮分类底栏。
+Liquid Glass 仅用于导航、主要操作、滑块头与列表开关。沿用 AndroidLiquidGlass / Backdrop 2.0.1 的 lens、高光、阻尼及拉伸；本版修补最新状态/回调同步、整条 44dp 滑杆触摸区、取消/RTL、51×31dp 开关和 44dp 按钮。分组内容不使用玻璃卡片。未引入 Apple 字体或 SF Symbols。
 
-覆盖安装保留旧参数。旧配置中的帧率也会保留；要采用 120fps 默认值，请在「性能」二级页点击全部复位，不会影响玻璃参数。
+玻璃球模型、数据、悬浮窗、运动和渲染代码及 shader 本版均未改动，配置 schema 与默认值保持原样。覆盖安装保留现有参数。版本为 versionCode 6 / versionName 1.5.0-demo。
 
 ## 安装与使用
 
-1. 将 `dist/灵动玻璃球-demo.apk` 发送到 Android 手机（Android 8.0 / API 26 及以上，支持 GLES 3.0）。
-2. 从文件管理器打开 APK，按系统提示允许该安装来源。
-3. 打开“灵动玻璃球”，点击“授权并返回”，为本应用开启“显示在其他应用上层”。
-4. 返回应用，点击“启动悬浮层”。Android 13 及以上建议允许通知，以便使用显示、隐藏、停止动作。
-5. 返回桌面或打开普通 App：胶囊继续显示。点击胶囊展开；单击小球短暂切换思考圆点；上滑小球收回胶囊。
+1. 安装 `dist/灵动玻璃球-demo.apk`，要求 Android 8.0 / API 26 及以上、GLES 3.0。
+2. 打开 App 并开启「显示悬浮球」；首次进入系统授权页，允许「显示在其他应用上层」后返回，再开启开关。
+3. Android 13 及以上建议允许通知，以便使用显示、隐藏、停止动作。
+4. 回到桌面或普通 App：点击胶囊展开；单击小球短暂切换思考圆点；上滑小球收回胶囊。
 
-上滑超过 64dp 或上滑速度超过 800dp/s 收起，否则弹回。触摸悬浮窗口以外的区域可正常操作下层界面。球体外部的透明余量仍属于小型悬浮窗口的矩形触控范围。
+上滑超过 64dp 或速度超过 800dp/s 收起，否则弹回。窗口以外区域可操作下层应用；球体周围的小型透明余量仍属于触摸窗口。位置只能通过设置修改。
 
 ## 调参
 
-设置页预览与系统悬浮层共用同一个 GLES 渲染器。可切换棋盘、纯白、深色背景，直接检查下半球透明度。
+通过系统悬浮球观察修改效果，App 内不再提供实时预览。
 
 | 分组 | 可调整内容 |
 | --- | --- |
-| 胶囊与位置 | 胶囊宽高、球径、余量、效果比例、顶部/水平偏移、左/中/右位置 |
-| 玻璃 | 内部场景扭曲深度、曲率、白色高光、阴影和暖色焦散 |
-| 暗场 | 顶部暗度、黑色区域高度、下半部渐隐跨度和高斯陡度 |
-| 波形 | 振幅、尺度、色散、线宽、亮度、填光、柔化、Bloom、色相 |
-| 思考圆点 | 六组双点的环径、点径、辉光、转速 |
-| 动画 | 展开/收回弹簧、负向回弹、手势阻力、微形变限幅与回弹、波形延迟、呼吸、点击反馈、圆点持续时间 |
-| 性能 | 胶囊/球体帧率、内部渲染分辨率 |
+| 胶囊与位置 | 胶囊宽高、球径、余量、画布比例、顶部/水平偏移、左/中/右位置、触控扩展与倍率 |
+| 玻璃 | 内部深度、曲率、高光、阴影、焦散及柔度 |
+| 暗场 | 强度、纯黑区域、渐隐跨度、高斯斜率 |
+| 波形 | 振幅、尺度、色散、线宽、亮度、填光及厚度、柔化、Bloom、色相 |
+| 思考圆点 | 环半径、点半径、辉光、转速 |
+| 动画 | 手势阻力、微形变、展开/收起弹簧、呼吸、按压、思考时间、自动收起与倒计时 |
+| 性能 | 胶囊/展开帧率、渲染比例 |
 
-提供“参考原版 / 柔和 / 明亮”预设；各组可独立重置。“全部恢复”回到参考默认值。位置仅通过设置页修改，不拖动胶囊定位。
-
-“复制 JSON”导出参数；“导入 JSON”可粘贴参数。`schemaVersion=1`，缺失字段取默认值，未知字段忽略，越界值夹紧；损坏 JSON 不覆盖现有配置。应用本地保存参数。
+提供「参考原版 / 柔和 / 明亮」预设，应用前确认替换全部参数。「导入与导出」是全屏表单：复制 JSON 备份，再粘贴并导入；成功/复制采用 App 内提示，错误显示在表单中。schemaVersion=1，缺失字段用默认值，未知字段忽略，越界值夹紧；损坏 JSON 不覆盖现有配置。参数通过 DataStore 本地保存。
 
 ## 效果边界
 
-- 胶囊是纯黑色，没有波形、高光或彩色描边。
-- 玻璃球使用参考源码的光谱波形、双点、超椭圆 SDF、解析弹簧、薄白高光和高斯暗场公式；上部暗、下部透明。
-- **不读取屏幕、不录屏，不实现下层内容折射。** 折射仅作用于内部生成的波形/暗场场景。下层 App 内容透过透明区域原样显示，外部光影以 Android 预乘 Alpha 近似合成，因此不保证逐像素一致。
-- 只承诺桌面和普通应用之上的展示；锁屏、权限/安全页面、状态栏、输入法等系统关键窗口不保证覆盖。部分应用可以主动阻止其他应用的悬浮窗。
-- 无联网、麦克风、录屏、无障碍和存储权限。没有语音助手功能、开机启动或后台录音。
-- 这是 debug 签名的非商业测试包，不是应用商店发布包。后台省电策略因手机厂商而异；如被回收，回设置页重新启动。
+- 胶囊稳定状态为纯黑色；玻璃球使用参考的光谱波形、双点、超椭圆 SDF、解析弹簧、薄白高光和高斯暗场公式，上部暗、下部透明。
+- 不读取屏幕、不录屏，折射仅作用于内部生成场景；下层内容透过透明区域原样显示。外部光影以 Android 预乘 Alpha 近似合成，不保证逐像素一致。
+- 锁屏、安全页面、状态栏、输入法等系统关键窗口不保证覆盖；部分 App 会阻止悬浮窗。物理顶边被系统状态栏挡住的触摸高度会补到下方，红框显示实际触控窗口。
+- 无联网、麦克风、录屏、无障碍或存储权限，没有语音助手、开机启动或后台录音。
+- debug 签名非商业测试包，不是商店发布包。后台省电策略因厂商不同；服务被回收时，在前台设置页重新开启。
 
 ## 本地构建
 
-工具链：AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin、Compose 编译插件 2.4.10、Compose BOM 2026.06.01、compileSdk 37、targetSdk 36、Java 17 字节码。当前主机使用 JDK 21 运行 Gradle。compileSdk 37 是 Backdrop 2.0.1 的 AAR 要求，不改变 Android 8.0 的最低安装版本。
+AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin、Compose 编译插件 2.4.10、Compose BOM 2026.06.01。compileSdk 37 / targetSdk 36 / minSdk 26；Java 17 字节码，当前主机使用 JDK 21。
 
-在 `local.properties` 中设置自己的 `sdk.dir`，随后执行：
+在 `local.properties` 设置 `sdk.dir` 后执行：
 
 ```sh
 ./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
-./gradlew connectedDebugAndroidTest --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
+./gradlew compileDebugAndroidTestKotlin --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
 ```
 
-本机 Desktop 文件同步目录曾对生成物创建 `… 2.class` 冲突副本，因此根构建脚本将可再生输出放在 Java 临时目录的 `glass-orb-android-build/app` 下。源码仍全部位于本目录。APK 位于该构建目录的 `outputs/apk/debug/app-debug.apk`。单元测试和 Android 测试报告也在该目录下。
+本版按要求未运行模拟器或实体机测试。导航、总开关、坐标映射与默认值逻辑有 JVM 测试；Android 界面测试更新并编译，尚未 connected 运行。120Hz 跟随 Compose/Choreographer，未添加 60fps 限制；实际刷新率与手势观感需目标设备验证。
 
-架构入口：`OrbConfig` → DataStore `OrbConfigRepository` → 不可变 `RenderSnapshot` → `OrbTextureView` / GL 渲染线程；`OverlayWindowController` 管理窗口和手势，`OrbOverlayService` 管理前台服务。
+生成物位于 Java 临时目录的 `glass-orb-android-build/app`，以避免 Desktop 同步目录的冲突副本。APK 为其 `outputs/apk/debug/app-debug.apk`，交付副本与 SHA-256 位于 `dist/`。
+
+架构：`OrbConfig` → DataStore `OrbConfigRepository` → `RenderSnapshot` → `OrbTextureView` / GL；`OverlayWindowController` 管理窗口与手势，`OrbOverlayService` 管理服务。新设置导航与纯逻辑位于 `ui/SettingsUiLogic.kt`。
 
 ## 参考与许可
 
-参考：[glass-voice-orb-study](https://github.com/cxcboss/glass-voice-orb-study)，固定提交 `3d7e98199b385358df6ddf65a9d20644754f22eb`；[在线演示](https://zq52xy.github.io/glass-voice-orb-study/)。详细归属和非商业要求见 `NOTICE.md`、`LICENSE`。
+效果参考：[glass-voice-orb-study](https://github.com/cxcboss/glass-voice-orb-study)，固定提交 `3d7e98199b385358df6ddf65a9d20644754f22eb`；[在线演示](https://zq52xy.github.io/glass-voice-orb-study/)。归属和非商业要求见 `NOTICE.md`、`LICENSE`。
 
-设置页底栏、滑杆、开关、按钮及拖动阻力直接采用 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6` 源码，并依赖其 Backdrop 2.0.1 与 Shapes 1.2.1。原始源码清单、单平台适配点与许可证位置见 `THIRD_PARTY_NOTICES.md`。
+设置控件基于 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)，固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`，依赖 Backdrop 2.0.1 / Shapes 1.2.1；具体修改与许可见 `THIRD_PARTY_NOTICES.md`。底栏源码仅作为未使用的第三方文件保留，不进入界面运行路径。
 
-参考仓库只在临时目录分析，没有修改、提交或推送。本项目只移植必要的 shader / 动画公式，没有整包复制参考项目或其背景素材。`tools/port-reference-shaders.mjs <参考目录>` 可对固定提交重现 shader 的机械移植，使用 `apply_patch` 写入本地 Android shader。
+参考仓库只在临时目录分析，没有修改或提交；`tools/port-reference-shaders.mjs <参考目录>` 可重现固定提交 shader 的机械移植。
