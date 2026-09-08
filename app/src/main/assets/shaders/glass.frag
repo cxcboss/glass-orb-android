@@ -32,6 +32,7 @@ uniform float uCausticOffsetY;
 uniform float uProjectionSoftness;
 
 uniform float uGlassVisibility;
+uniform float uCollapsed;
 uniform float uCapsuleOutline;
 out vec4 outColor;
 
@@ -80,6 +81,16 @@ float shapeDistance(vec2 p, vec2 halfSize, float cornerRadius) {
 		return length(max(dd, vec2(0.0))) + min(max(dd.x, dd.y), 0.0);
 	}
 	return supercircleDistance(abs(p), halfSize, r, cornerParam(halfSize, r));
+}
+
+// The collapsed capsule is intentionally a hard, opaque ink shape. Keep its
+// mask independent from the superellipse approximation used by the glass orb;
+// this prevents a translucent/stale GL edge from leaking the app underneath.
+float roundedRectDistance(vec2 p, vec2 halfSize, float radius) {
+
+    float r = min(radius, min(halfSize.x, halfSize.y));
+    vec2 q = abs(p) - (halfSize - vec2(r));
+    return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
 vec2 shapeGradient(vec2 p, vec2 halfSize, float cornerRadius, float radialMix) {
@@ -170,9 +181,13 @@ void main() {
     float shapeAlpha = 1.0 - smoothstep(-1.0, 1.0, d);
     // A collapsed Dynamic Island is ink black: no wave, tint or projection.
     // The optional rim is the short-lived dark-theme launch outline only.
-    if (uGlassVisibility <= 0.0001) {
-		float rim = (1.0 - smoothstep(0.0, 2.0, abs(d))) * uCapsuleOutline * 0.42;
-		outColor = vec4(vec3(rim), max(shapeAlpha, rim));
+    if (uCollapsed > 0.5 || uGlassVisibility <= 0.0001) {
+        float capsuleD = roundedRectDistance(p, halfSize, uCornerRadius);
+        float capsuleAlpha = 1.0 - smoothstep(-1.0, 1.0, capsuleD);
+        float rim = (1.0 - smoothstep(0.0, 2.0, abs(capsuleD))) * uCapsuleOutline * 0.42;
+        float alpha = max(capsuleAlpha, rim);
+        // Premultiplied output: the capsule interior is always RGB=0, A=1.
+        outColor = vec4(vec3(rim) * alpha, alpha);
 		return;
     }
     vec2 grad = shapeGradient(p, halfSize, uCornerRadius, uGradRadialMix);
@@ -197,5 +212,11 @@ void main() {
     projection *= 1.0 - smoothstep(0.45, 1.0, radialEdge);
     float edgePx = min(min(pixel.x, pixel.y), min(uResolution.x - pixel.x, uResolution.y - pixel.y));
     projection *= smoothstep(0.0, max(uProjectionSoftness * 2.0, 2.0), edgePx);
-    outColor = inside + projection;
+    // TextureView's translucent surface is composited as premultiplied RGBA.
+    // Writing straight RGB with a low alpha leaks bright/dull pixels from the
+    // generated scene and is the source of the intermittent milky capsule and
+    // glass appearance on different compositors.
+    vec4 composed = inside + projection;
+    float composedAlpha = saturate(composed.a);
+    outColor = vec4(clamp(composed.rgb, 0.0, 1.0) * composedAlpha, composedAlpha);
 }

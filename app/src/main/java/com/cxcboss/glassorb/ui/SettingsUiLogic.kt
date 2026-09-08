@@ -4,6 +4,7 @@ import com.cxcboss.glassorb.data.ConfigGroup
 import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
 import kotlin.math.abs
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 sealed interface SettingsRoute {
     data object Home : SettingsRoute
@@ -40,6 +41,18 @@ fun sliderValueAt(x: Float, width: Float, range: ClosedFloatingPointRange<Float>
     if (width <= 0f || !x.isFinite()) return range.start
     val fraction = (x / width).coerceIn(0f, 1f)
     return (range.start + (if (rtl) 1f - fraction else fraction) * (range.endInclusive - range.start)).coerceIn(range)
+}
+
+/**
+ * Material Slider validates its current value against its visual step. Values
+ * restored from JSON may contain binary floating-point residue (for example
+ * 99.99999 instead of 100), so normalize before attaching a control.
+ */
+fun snapToSliderStep(value: Float, range: ClosedFloatingPointRange<Float>, decimals: Int): Float {
+    if (!value.isFinite()) return range.start
+    val multiplier = 10f.pow(decimals.coerceIn(0, 3))
+    val steps = ((value.coerceIn(range) - range.start) * multiplier).roundToInt()
+    return (range.start + steps / multiplier).coerceIn(range)
 }
 
 enum class SliderGestureAxis {

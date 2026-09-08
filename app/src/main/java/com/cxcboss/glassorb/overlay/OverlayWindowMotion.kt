@@ -25,6 +25,7 @@ class OverlayWindowMotion(
     private var motion: MotionConfig = motion
     private var dragTargetXDp = 0f
     private var dragTargetYDp = 0f
+    private var collapsePullTarget = 0f
     private var tracking = false
 
     val dragXSpring = AnalyticSpring(0f, deformationResponse, deformationDamping)
@@ -65,13 +66,12 @@ class OverlayWindowMotion(
         tracking = true
         val closingDirection = deltaYDp < 0f && abs(deltaYDp) > abs(deltaXDp)
         val collapseDeltaDp = if (closingDirection) -deltaYDp else 0f
-        collapsePull = ElasticDrag.collapseProgress(collapseDeltaDp, motion.collapseRangeDp)
+        collapsePullTarget = ElasticDrag.collapseProgress(collapseDeltaDp, motion.collapseRangeDp)
 
         dragTargetXDp = if (!closingDirection) ElasticDrag.rubberBand(deltaXDp, motion.dragRangeDp, motion.dragResistance) else 0f
         dragTargetYDp = if (!closingDirection) ElasticDrag.rubberBand(deltaYDp, motion.dragRangeDp, motion.dragResistance) else 0f
-        dragXSpring.snapTo(dragTargetXDp)
-        dragYSpring.snapTo(dragTargetYDp)
-        deformation = currentDeformation(dragTargetXDp, dragTargetYDp)
+        dragXSpring.target = dragTargetXDp
+        dragYSpring.target = dragTargetYDp
     }
 
     fun release(
@@ -85,10 +85,11 @@ class OverlayWindowMotion(
         } else 0f
         tracking = false
 
-        dragXSpring.seed(dragTargetXDp, if (collapsePull > 0f) 0f else velocityXDpPerSecond.coerceIn(-80f, 80f), 0f)
-        dragYSpring.seed(dragTargetYDp, if (collapsePull > 0f) 0f else velocityYDpPerSecond.coerceIn(-80f, 80f), 0f)
+        dragXSpring.seed(dragXSpring.value, if (collapsePull > 0f) 0f else velocityXDpPerSecond.coerceIn(-80f, 80f), 0f)
+        dragYSpring.seed(dragYSpring.value, if (collapsePull > 0f) 0f else velocityYDpPerSecond.coerceIn(-80f, 80f), 0f)
         dragTargetXDp = 0f
         dragTargetYDp = 0f
+        collapsePullTarget = 0f
         collapsePull = 0f
 
         return OverlaySpringSeed(
@@ -113,7 +114,19 @@ class OverlayWindowMotion(
     }
 
     fun step(deltaSeconds: Float) {
-        if (tracking) return
+        if (tracking) {
+            // MotionEvent frequency is device/OEM dependent. Ease toward the
+            // latest finger target on the render clock so a fast gesture cannot
+            // jump several morph states between two rendered frames.
+            collapsePull = ElasticDrag.approach(
+                current = collapsePull,
+                target = collapsePullTarget,
+                deltaSeconds = deltaSeconds,
+                responsePerSecond = TRACKING_RESPONSE_PER_SECOND,
+            ).coerceIn(0f, 1f)
+            dragXSpring.target = dragTargetXDp
+            dragYSpring.target = dragTargetYDp
+        }
         dragXSpring.step(deltaSeconds)
         dragYSpring.step(deltaSeconds)
         deformation = currentDeformation(dragXSpring.value, dragYSpring.value)
@@ -123,6 +136,7 @@ class OverlayWindowMotion(
         tracking = false
         dragTargetXDp = 0f
         dragTargetYDp = 0f
+        collapsePullTarget = 0f
         collapsePull = 0f
         dragXSpring.snapTo(0f)
         dragYSpring.snapTo(0f)
@@ -135,4 +149,8 @@ class OverlayWindowMotion(
         maxDragDp = motion.deformLimitDp,
         maxScaleDelta = motion.deformScaleDelta,
     )
+
+    private companion object {
+        const val TRACKING_RESPONSE_PER_SECOND = 48f
+    }
 }

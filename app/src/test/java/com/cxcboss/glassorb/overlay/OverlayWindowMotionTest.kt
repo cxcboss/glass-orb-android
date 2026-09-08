@@ -37,6 +37,7 @@ class OverlayWindowMotionTest {
 
         motion.setExpandedWindow(OverlayAnchor(topDp = 12f, centerXDp = 60f))
         motion.onSwipeMove(deltaXDp = 0f, deltaYDp = -30f)
+        motion.step(1f / 120f)
 
         val release = motion.release(
             decision = SwipeDecision.Restore,
@@ -56,11 +57,12 @@ class OverlayWindowMotionTest {
         motion.onSwipeMove(300f, -10f)
         val before = motion.deformation
         motion.step(1f / 60f)
-        assertEquals(before, motion.deformation)
+        val after = motion.deformation
         assertEquals(0f, motion.collapsePull, 0f)
-        assertTrue(before.offsetXDp <= 8f)
-        assertTrue(before.scaleX > 1f && before.scaleX <= 1.02f)
-        assertTrue(before.scaleY < 1f)
+        assertTrue(after.offsetXDp >= before.offsetXDp)
+        assertTrue(after.offsetXDp <= 8f)
+        assertTrue(after.scaleX > 1f && after.scaleX <= 1.02f)
+        assertTrue(after.scaleY < 1f)
         motion.release(SwipeDecision.Restore, 0f, 0f)
         repeat(180) { motion.step(1f / 60f) }
         assertEquals(0f, motion.deformation.offsetXDp, 0.001f)

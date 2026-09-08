@@ -12,8 +12,8 @@ android {
         // surface and edge-to-edge/window insets behavior used by the app.
         minSdk = 29
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.5.0-demo"
+        versionCode = 7
+        versionName = "1.5.1-demo"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

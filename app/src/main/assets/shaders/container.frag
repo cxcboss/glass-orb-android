@@ -6,7 +6,6 @@ uniform vec2 uResolution;
 uniform vec2 uEffectOrigin;
 uniform vec2 uEffectSize;
 uniform float uContainerStrength;
-uniform float uContainerBlack;
 uniform float uContainerFade;
 uniform float uContainerGauss;
 
@@ -23,21 +22,16 @@ void main() {
     vec4 effect = texture(uEffectTexture, vec2(effectUv.x, 1.0 - effectUv.y));
     float yFromTop = effectUv.y;
     float fadeSpan = max(uContainerFade, 0.001);
-    float t = clamp((yFromTop - uContainerBlack) / fadeSpan, 0.0, 1.0);
-    float verticalFade = yFromTop <= uContainerBlack ? 1.0 : exp(-uContainerGauss * t * t);
+    // Keep only a continuous dark-field fade. There is deliberately no
+    // hard-coded top band or opaque "pure black" area inside the orb.
+    float t = clamp(yFromTop / fadeSpan, 0.0, 1.0);
+    float verticalFade = exp(-uContainerGauss * t * t);
     float edge = smoothstep(0.0, 0.14, min(effectUv.x, 1.0 - effectUv.x));
     float containerAlpha = clamp(uContainerStrength, 0.0, 1.0) * verticalFade * edge;
-    // The top band is an opaque black continuation of the capsule. Only that
-    // band is allowed to replace the generated RGB. Applying the gaussian
-    // container alpha to RGB as well makes the entire settled orb look like a
-    // black mask, because glass.frag samples RGB even in low-alpha areas.
-    // Below the band, keep the premultiplied effect RGB intact and compose the
-    // black field behind it through alpha (effect OVER container).
-    float topBlack = (yFromTop <= uContainerBlack) ? edge : 0.0;
-    float lowerContainerAlpha = containerAlpha * (1.0 - topBlack);
     float inverseEffectAlpha = 1.0 - clamp(effect.a, 0.0, 1.0);
-    float sceneAlpha = clamp(effect.a + lowerContainerAlpha * inverseEffectAlpha, 0.0, 1.0);
-    vec3 sceneRgb = mix(effect.rgb, vec3(0.0), topBlack);
-    sceneAlpha = max(sceneAlpha, topBlack);
-    outColor = vec4(sceneRgb, sceneAlpha);
+    // Keep the generated effect RGB intact and put the dark field behind it
+    // through alpha (effect OVER container). This preserves the smooth upper
+    // shading without introducing a black rectangle or a black cap in the orb.
+    float sceneAlpha = clamp(effect.a + containerAlpha * inverseEffectAlpha, 0.0, 1.0);
+    outColor = vec4(effect.rgb, sceneAlpha);
 }

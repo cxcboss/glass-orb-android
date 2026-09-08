@@ -36,6 +36,16 @@ object ElasticDrag {
         return (1f - exp(-distance / range)).coerceIn(0f, 1f)
     }
 
+    /** Frame-rate independent easing used while a finger is still down. */
+    fun approach(current: Float, target: Float, deltaSeconds: Float, responsePerSecond: Float): Float {
+        if (!current.isFinite() || !target.isFinite() || !deltaSeconds.isFinite() || !responsePerSecond.isFinite()) {
+            return target.coerceIn(0f, 1f)
+        }
+        if (deltaSeconds <= 0f || responsePerSecond <= 0f) return current
+        val amount = (1f - exp(-responsePerSecond * deltaSeconds)).coerceIn(0f, 1f)
+        return current + (target - current) * amount
+    }
+
     fun deformation(
         offsetXDp: Float,
         offsetYDp: Float,

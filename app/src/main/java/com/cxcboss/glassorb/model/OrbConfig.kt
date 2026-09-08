@@ -36,9 +36,9 @@ data class GlassConfig(
 
 data class ContainerConfig(
     val strength: Float = 0.9f,
-    val blackLevel: Float = 0.25f,
     val fade: Float = 1f,
     val gaussian: Float = 8f,
+    val backgroundDimEnabled: Boolean = false,
 )
 
 data class WaveConfig(
@@ -64,8 +64,8 @@ data class DotsConfig(
 data class MotionConfig(
     val openResponse: Float = 0.36f,
     val openDamping: Float = 0.84f,
-    val closeResponse: Float = 0.26f,
-    val closeDamping: Float = 0.76f,
+    val closeResponse: Float = 0.34f,
+    val closeDamping: Float = 0.78f,
     val closeBounce: Float = 0.045f,
     val collapseRangeDp: Float = 48f,
     val dragRangeDp: Float = 64f,
@@ -79,8 +79,8 @@ data class MotionConfig(
     val breathingSpeed: Float = 1.65f,
     val pressScale: Float = 1.018f,
     val thinkingDurationMs: Int = 1_200,
-    val autoCollapseEnabled: Boolean = false,
-    val autoCollapseSeconds: Float = 8f,
+    val autoCollapseEnabled: Boolean = true,
+    val autoCollapseSeconds: Float = 4f,
 )
 
 data class PerformanceConfig(
@@ -132,7 +132,6 @@ data class OrbConfig(
             ),
             container = container.copy(
                 strength = container.strength.safeRange(0f, 1.5f, defaults.container.strength),
-                blackLevel = container.blackLevel.safeRange(0f, 1f, defaults.container.blackLevel),
                 fade = container.fade.safeRange(0f, 2f, defaults.container.fade),
                 gaussian = container.gaussian.safeRange(0.5f, 16f, defaults.container.gaussian),
             ),
@@ -157,8 +156,19 @@ data class OrbConfig(
             motion = motion.copy(
                 openResponse = motion.openResponse.safeRange(0.12f, 1.2f, defaults.motion.openResponse),
                 openDamping = motion.openDamping.safeRange(0.2f, 1.5f, defaults.motion.openDamping),
-                closeResponse = motion.closeResponse.safeRange(0.12f, 1.2f, defaults.motion.closeResponse),
-                closeDamping = motion.closeDamping.safeRange(0.2f, 1.5f, defaults.motion.closeDamping),
+                // 0.26s was the pre-smoothing default. Migrate that exact
+                // legacy value to the slower 0.34s default while preserving
+                // any other user-selected response.
+                closeResponse = (if (motion.closeResponse == LEGACY_CLOSE_RESPONSE) {
+                    defaults.motion.closeResponse
+                } else {
+                    motion.closeResponse
+                }).safeRange(0.12f, 1.2f, defaults.motion.closeResponse),
+                closeDamping = (if (motion.closeDamping == LEGACY_CLOSE_DAMPING) {
+                    defaults.motion.closeDamping
+                } else {
+                    motion.closeDamping
+                }).safeRange(0.2f, 1.5f, defaults.motion.closeDamping),
                 closeBounce = motion.closeBounce.safeRange(0f, 0.12f, defaults.motion.closeBounce),
                 collapseRangeDp = motion.collapseRangeDp.safeRange(24f, 120f, defaults.motion.collapseRangeDp),
                 dragRangeDp = motion.dragRangeDp.safeRange(16f, 160f, defaults.motion.dragRangeDp),
@@ -184,6 +194,8 @@ data class OrbConfig(
 
     companion object {
         const val CURRENT_SCHEMA_VERSION = 1
+        private const val LEGACY_CLOSE_RESPONSE = 0.26f
+        private const val LEGACY_CLOSE_DAMPING = 0.76f
 
         fun reference(): OrbConfig = OrbConfig()
 
@@ -200,7 +212,7 @@ data class OrbConfig(
 
         fun bright(): OrbConfig = reference().copy(
             glass = GlassConfig(highlightAmount = 1.05f, shadowAmount = 0.48f, causticAmount = 2.05f),
-            container = ContainerConfig(strength = 0.82f, blackLevel = 0.19f),
+            container = ContainerConfig(strength = 0.82f),
             wave = WaveConfig(intensity = 2.55f, whiteBloom = 1.35f, chromaticAberration = 3.1f),
         )
     }

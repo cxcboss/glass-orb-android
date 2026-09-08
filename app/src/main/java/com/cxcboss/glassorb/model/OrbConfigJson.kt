@@ -33,9 +33,9 @@ object OrbConfigJson {
             })
             put("container", JSONObject().apply {
                 put("strength", value.container.strength)
-                put("blackLevel", value.container.blackLevel)
                 put("fade", value.container.fade)
                 put("gaussian", value.container.gaussian)
+                put("backgroundDimEnabled", value.container.backgroundDimEnabled)
             })
             put("wave", JSONObject().apply {
                 put("amplitude", value.wave.amplitude)
@@ -123,9 +123,9 @@ object OrbConfigJson {
             ),
             container = defaults.container.copy(
                 strength = container.float("strength", defaults.container.strength),
-                blackLevel = container.float("blackLevel", defaults.container.blackLevel),
                 fade = container.float("fade", defaults.container.fade),
                 gaussian = container.float("gaussian", defaults.container.gaussian),
+                backgroundDimEnabled = container.boolean("backgroundDimEnabled", defaults.container.backgroundDimEnabled),
             ),
             wave = defaults.wave.copy(
                 amplitude = wave.float("amplitude", defaults.wave.amplitude),

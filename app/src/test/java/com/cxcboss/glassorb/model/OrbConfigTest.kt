@@ -14,6 +14,7 @@ class OrbConfigTest {
         assertEquals(128f, config.geometry.orbDiameterDp, 0f)
         assertEquals(0.72f, config.glass.highlightAmount, 0f)
         assertEquals(1.6f, config.glass.causticAmount, 0f)
+        assertEquals(false, config.container.backgroundDimEnabled)
         assertEquals(30_000f, config.wave.bandFill, 0f)
         assertEquals(0.055f, config.dots.glow, 0f)
         assertEquals(48f, config.motion.collapseRangeDp, 0f)
@@ -23,6 +24,10 @@ class OrbConfigTest {
         assertEquals(0.016f, config.motion.deformScaleDelta, 0f)
         assertEquals(0.24f, config.motion.deformResponse, 0f)
         assertEquals(0.68f, config.motion.deformDamping, 0f)
+        assertEquals(0.34f, config.motion.closeResponse, 0f)
+        assertEquals(0.78f, config.motion.closeDamping, 0f)
+        assertTrue(config.motion.autoCollapseEnabled)
+        assertEquals(4f, config.motion.autoCollapseSeconds, 0f)
         assertEquals(120, config.performance.collapsedFps)
         assertEquals(120, config.performance.expandedFps)
     }
@@ -63,6 +68,16 @@ class OrbConfigTest {
     }
 
     @Test
+    fun `normalized migrates the old fast close spring defaults`() {
+        val migrated = OrbConfig.reference().copy(
+            motion = OrbConfig.reference().motion.copy(closeResponse = 0.26f, closeDamping = 0.76f),
+        ).normalized()
+
+        assertEquals(0.34f, migrated.motion.closeResponse, 0f)
+        assertEquals(0.78f, migrated.motion.closeDamping, 0f)
+    }
+
+    @Test
     fun `json round trip keeps a customized snapshot`() {
         val original = OrbConfig.bright().copy(
             geometry = OrbConfig.bright().geometry.copy(horizontalOffsetDp = 42f),
@@ -76,6 +91,7 @@ class OrbConfigTest {
                 deformResponse = 0.31f,
                 deformDamping = 0.71f,
             ),
+            container = OrbConfig.bright().container.copy(backgroundDimEnabled = true),
         )
 
         val restored = OrbConfigJson.decode(OrbConfigJson.encode(original)).getOrThrow()
@@ -101,6 +117,19 @@ class OrbConfigTest {
         assertEquals(34f, restored.geometry.capsuleHeightDp, 0f)
         assertEquals(OrbConfig.reference().glass, restored.glass)
         assertEquals(1.5f, restored.motion.dragResistance, 0f)
+        assertTrue(restored.motion.autoCollapseEnabled)
+        assertEquals(4f, restored.motion.autoCollapseSeconds, 0f)
+    }
+
+    @Test
+    fun `legacy pure black area field is ignored during import`() {
+        val restored = OrbConfigJson.decode(
+            """{"schemaVersion":1,"container":{"strength":0.7,"blackLevel":1.0}}""",
+        ).getOrThrow()
+
+        assertEquals(0.7f, restored.container.strength, 0f)
+        assertEquals(OrbConfig.reference().container.fade, restored.container.fade, 0f)
+        assertEquals(OrbConfig.reference().container.gaussian, restored.container.gaussian, 0f)
     }
 
     @Test

@@ -88,24 +88,24 @@ class OverlayLayoutTest {
     }
 
     @Test
-    fun `status bar overlap is mirrored below protected input strip`() {
+    fun `status bar overlap moves touch proxy below protected input strip`() {
         val visual = IntRect(left = 390, top = 0, right = 690, bottom = 102)
 
-        val touch = OverlayLayout.extendTouchBelowBlockedTop(
+        val touch = OverlayLayout.moveTouchBelowProtectedTop(
             bounds = visual,
             blockedBottomPx = 72,
             limitBottomPx = 2280,
         )
 
-        assertEquals(0, touch.top)
+        assertEquals(72, touch.top)
         assertEquals(174, touch.bottom)
-        assertEquals(102, touch.bottom - 72)
+        assertEquals(102, touch.height)
     }
 
     @Test
     fun `touch bounds below status bar remain unchanged`() {
         val visual = IntRect(left = 390, top = 96, right = 690, bottom = 198)
-        assertEquals(visual, OverlayLayout.extendTouchBelowBlockedTop(visual, 72, 2280))
+        assertEquals(visual, OverlayLayout.moveTouchBelowProtectedTop(visual, 72, 2280))
     }
 
     @Test

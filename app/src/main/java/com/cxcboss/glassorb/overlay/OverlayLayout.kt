@@ -41,14 +41,21 @@ object OverlayLayout {
         )
 
     /**
-     * System status bars are above TYPE_APPLICATION_OVERLAY for input. If a visual
-     * target overlaps that protected strip, extend an equivalent hit band below it
-     * so the full configured touch height remains reachable without moving the orb.
+     * Application overlays are below the status-bar window for input. A window
+     * whose top is inside that protected strip cannot receive any touch, even if
+     * it uses FLAG_LAYOUT_NO_LIMITS. Move the independent hit-proxy below the
+     * strip instead of leaving a fully blocked window at y=0.
+     *
+     * The visual renderer is intentionally not moved: this is only a fallback
+     * hit target for configurations that place the capsule under the status bar.
      */
-    fun extendTouchBelowBlockedTop(bounds: IntRect, blockedBottomPx: Int, limitBottomPx: Int): IntRect {
-        val blockedHeight = (blockedBottomPx - bounds.top).coerceIn(0, bounds.height)
-        if (blockedHeight == 0) return bounds
-        return bounds.copy(bottom = (bounds.bottom + blockedHeight).coerceAtMost(limitBottomPx))
+    fun moveTouchBelowProtectedTop(bounds: IntRect, blockedBottomPx: Int, limitBottomPx: Int): IntRect {
+        if (bounds.top >= blockedBottomPx) return bounds
+        val newTop = blockedBottomPx.coerceIn(0, limitBottomPx)
+        if (newTop >= limitBottomPx) return bounds.copy(top = limitBottomPx, bottom = limitBottomPx)
+        val height = bounds.height.coerceAtLeast(1)
+        val newBottom = (newTop + height).coerceAtMost(limitBottomPx)
+        return bounds.copy(top = newTop, bottom = newBottom.coerceAtLeast(newTop + 1))
     }
 
     fun expandedBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {

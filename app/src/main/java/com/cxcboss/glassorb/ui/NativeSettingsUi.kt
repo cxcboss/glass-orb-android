@@ -21,7 +21,6 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import androidx.core.content.ContextCompat
 import com.cxcboss.glassorb.BuildConfig
 import com.cxcboss.glassorb.data.ConfigGroup
@@ -39,10 +38,6 @@ import com.google.android.material.radiobutton.MaterialRadioButton
 import com.google.android.material.slider.Slider
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-import android.window.BackEvent
-import android.window.OnBackAnimationCallback
-import android.window.OnBackInvokedCallback
-import android.window.OnBackInvokedDispatcher
 import java.util.ArrayDeque
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -59,6 +54,7 @@ private fun ConfigGroup.title(): String = when (this) {
 
 internal data class NativeSettingsCallbacks(
     val requestOverlayPermission: () -> Unit,
+    val requestAccessibilityPermission: () -> Unit,
     val startOverlay: () -> Unit,
     val showOverlay: () -> Unit,
     val hideOverlay: () -> Unit,
@@ -92,84 +88,53 @@ internal class NativeSettingsController(
 
     private enum class ParameterId { TouchAreaScale }
 
+    private data class PageEntry(
+        val screen: Screen,
+        val view: View,
+    )
+
     private val density = activity.resources.displayMetrics.density
-    private val stack = ArrayDeque<Screen>().apply { addLast(Screen.Home) }
-    private var pageLayer: View? = null
-    private var backGestureActive = false
+    private val pages = ArrayDeque<PageEntry>()
     private var sliderTracking = false
+    private var refreshAfterConfigFor: Screen? = null
+    private var navigationAnimating = false
     private var config: OrbConfig = OrbConfig.reference()
     private var runtimeStatus: OverlayRuntimeStatus = OverlayRuntimeStatus.Stopped
     private var overlayPermission: Boolean = false
-
-    @Suppress("NewApi")
-    @get:RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    val backInvokedCallback: OnBackInvokedCallback by lazy(LazyThreadSafetyMode.NONE) {
-        OnBackInvokedCallback {
-            if (!goBack()) activity.finish()
-        }
-    }
-
-    @Suppress("NewApi")
-    @get:RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-    val backAnimationCallback: OnBackAnimationCallback by lazy(LazyThreadSafetyMode.NONE) {
-        object : OnBackAnimationCallback {
-            override fun onBackStarted(backEvent: BackEvent) {
-                if (stack.size <= 1) return
-                backGestureActive = true
-                pageLayer?.animate()?.cancel()
-                pageLayer?.translationX = 0f
-            }
-
-            override fun onBackProgressed(backEvent: BackEvent) {
-                if (!backGestureActive) return
-                val width = (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels).toFloat()
-                pageLayer?.translationX = width * backEvent.progress.coerceIn(0f, 1f)
-            }
-
-            override fun onBackCancelled() {
-                if (!backGestureActive) return
-                backGestureActive = false
-                pageLayer?.animate()
-                    ?.translationX(0f)
-                    ?.setDuration(180L)
-                    ?.setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f))
-                    ?.start()
-            }
-
-            override fun onBackInvoked() {
-                backGestureActive = false
-                if (!goBack()) activity.finish()
-            }
-        }
-    }
+    private var accessibilityEnabled: Boolean = false
 
     init {
         root.setBackgroundColor(themeColor(android.R.attr.colorBackground))
-        render(animated = false)
+        addInitialPage()
     }
 
     fun updateConfig(value: OrbConfig) {
         val changed = config != value
         config = value
-        // Sliders update the ViewModel continuously while the finger is down.
-        // Rebuilding the page for every sample would steal the Material Slider gesture.
-        // Discrete actions (reset, preset, switches and JSON import) are safe to
-        // rebuild so the visible controls immediately reflect the new snapshot.
-        if (changed && !sliderTracking && (stack.last() is Screen.Group || stack.last() == Screen.Presets)) {
-            render(animated = false)
+        // Do not rebuild the active page for ordinary slider samples: it would
+        // steal the gesture. Explicit reset/import actions request one refresh.
+        if (changed && !sliderTracking && refreshAfterConfigFor == currentScreen()) {
+            refreshAfterConfigFor = null
+            refreshCurrentPage()
         }
     }
 
     fun updateRuntimeStatus(value: OverlayRuntimeStatus) {
         if (runtimeStatus == value) return
         runtimeStatus = value
-        if (stack.last() is Screen.Home || stack.last() is Screen.Overlay) render(animated = false)
+        if (currentScreen() is Screen.Home || currentScreen() is Screen.Overlay) refreshCurrentPage()
     }
 
     fun updateOverlayPermission(value: Boolean) {
         if (overlayPermission == value) return
         overlayPermission = value
-        if (stack.last() is Screen.Home || stack.last() is Screen.Overlay) render(animated = false)
+        if (currentScreen() is Screen.Home || currentScreen() is Screen.Overlay) refreshCurrentPage()
+    }
+
+    fun updateAccessibilityEnabled(value: Boolean) {
+        if (accessibilityEnabled == value) return
+        accessibilityEnabled = value
+        if (currentScreen() is Screen.Overlay) refreshCurrentPage()
     }
 
     fun navigate(screen: Any) {
@@ -184,25 +149,70 @@ internal class NativeSettingsController(
             }
             else -> Screen.Home
         }
-        if (stack.last() == target) return
-        stack.addLast(target)
-        render(animated = true)
+        if (currentScreen() == target || navigationAnimating) return
+        val page = createPage(target)
+        root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        pages.addLast(PageEntry(target, page))
+        page.translationX = (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels).toFloat()
+        navigationAnimating = true
+        page.animate()
+            .translationX(0f)
+            .setDuration(300L)
+            .setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f))
+            .withEndAction { navigationAnimating = false }
+            .start()
     }
 
     fun goBack(): Boolean {
-        if (stack.size <= 1) return false
-        stack.removeLast()
-        render(animated = false)
+        if (pages.size <= 1) return false
+        // Keep the previous page mounted and untouched. This preserves scroll
+        // position and slider progress while the top page animates away.
+        if (navigationAnimating) return true
+        val leaving = pages.peekLast() ?: return false
+        val distance = (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels).toFloat()
+        navigationAnimating = true
+        leaving.view.animate()
+            .translationX(distance)
+            .setDuration(300L)
+            .setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f))
+            .withEndAction {
+                if (pages.peekLast() === leaving) {
+                    pages.removeLast()
+                    root.removeView(leaving.view)
+                }
+                navigationAnimating = false
+            }
+            .start()
         return true
     }
 
-    private fun render(animated: Boolean) {
-        val old = pageLayer
+    private fun addInitialPage() {
+        val page = createPage(Screen.Home)
+        root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        pages.addLast(PageEntry(Screen.Home, page))
+    }
+
+    private fun refreshCurrentPage() {
+        val current = pages.pollLast() ?: return
+        current.view.animate().cancel()
+        navigationAnimating = false
+        val replacement = createPage(current.screen)
+        root.removeView(current.view)
+        root.addView(replacement, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        pages.addLast(PageEntry(current.screen, replacement))
+    }
+
+    private fun currentScreen(): Screen = pages.peekLast()?.screen ?: Screen.Home
+
+    private fun requestCurrentPageRefresh() {
+        refreshAfterConfigFor = currentScreen()
+    }
+
+    private fun createPage(screen: Screen): View {
         val page = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(themeColor(android.R.attr.colorBackground))
         }
-        val screen = stack.last()
         val toolbar = MaterialToolbar(activity).apply {
             title = screenTitle(screen)
             setTitleTextColor(themeColor(android.R.attr.textColorPrimary))
@@ -226,21 +236,7 @@ internal class NativeSettingsController(
             addView(buildScreen(screen), ViewGroup.LayoutParams.MATCH_PARENT)
         }
         page.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.removeAllViews()
-        root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        pageLayer = page
-
-        if (animated) {
-            page.translationX = (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels).toFloat()
-            page.animate()
-                .translationX(0f)
-                .setDuration(220L)
-                .setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f))
-                .start()
-        } else {
-            old?.animate()?.cancel()
-            page.translationX = 0f
-        }
+        return page
     }
 
     private fun buildScreen(screen: Screen): View = when (screen) {
@@ -274,15 +270,61 @@ internal class NativeSettingsController(
                 navigate("overlay")
             }
         }
+        section(content, "胶囊与位置") {
+            val referenceGeometry = OrbConfig.reference().geometry
+            val verticalDensity = activity.resources.displayMetrics.density.coerceAtLeast(0.1f)
+            addSlider(this, "胶囊宽度", config.geometry.capsuleWidthDp, referenceGeometry.capsuleWidthDp, 24f..220f, "dp") { value ->
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(capsuleWidthDp = value)) }
+            }
+            addSlider(this, "胶囊高度", config.geometry.capsuleHeightDp, referenceGeometry.capsuleHeightDp, 24f..64f, "dp") { value ->
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(capsuleHeightDp = value)) }
+            }
+            addSlider(
+                this,
+                "顶部偏移",
+                config.geometry.verticalOffsetDp * verticalDensity,
+                referenceGeometry.verticalOffsetDp * verticalDensity,
+                0f..300f,
+                "px",
+                decimals = 0,
+            ) { value ->
+                updateConfig { current ->
+                    current.copy(geometry = current.geometry.copy(verticalOffsetDp = value / verticalDensity))
+                }
+            }
+            addNavigationRow(this, "更多胶囊与位置设置", "横向位置、球体大小与触摸区域") {
+                navigate(ConfigGroup.Geometry)
+            }
+        }
+        section(content, "背景") {
+            addSwitchRow(
+                this,
+                "背景压暗",
+                "展开玻璃球时，屏幕顶部向下渐变 20% 黑色",
+                config.container.backgroundDimEnabled,
+            ) { enabled ->
+                updateConfig { current ->
+                    current.copy(container = current.container.copy(backgroundDimEnabled = enabled))
+                }
+            }
+        }
         section(content, "外观") {
-            ConfigGroup.entries.take(5).forEach { group ->
+            listOf(ConfigGroup.Glass, ConfigGroup.Container, ConfigGroup.Wave, ConfigGroup.Dots).forEach { group ->
                 addNavigationRow(this, group.title()) { navigate(group) }
             }
         }
         section(content, "交互") {
-            ConfigGroup.entries.drop(5).forEach { group ->
-                addNavigationRow(this, group.title()) { navigate(group) }
+            addSwitchRow(this, "自动收起玻璃球", "展开后 ${formatParameter(config.motion.autoCollapseSeconds, "s", 1)} 自动收起", config.motion.autoCollapseEnabled) { enabled ->
+                requestCurrentPageRefresh()
+                updateConfig { current -> current.copy(motion = current.motion.copy(autoCollapseEnabled = enabled)) }
             }
+            if (config.motion.autoCollapseEnabled) {
+                addSlider(this, "自动收起倒计时", config.motion.autoCollapseSeconds, OrbConfig.reference().motion.autoCollapseSeconds, 1f..60f, "s", 1) { value ->
+                    updateConfig { current -> current.copy(motion = current.motion.copy(autoCollapseSeconds = value)) }
+                }
+            }
+            addNavigationRow(this, ConfigGroup.Motion.title()) { navigate(ConfigGroup.Motion) }
+            addNavigationRow(this, ConfigGroup.Performance.title()) { navigate(ConfigGroup.Performance) }
         }
         section(content, "参数") {
             addNavigationRow(this, "预设") { navigate("presets") }
@@ -306,6 +348,15 @@ internal class NativeSettingsController(
             if (status is OverlayRuntimeStatus.Error) {
                 addTextRow(this, "错误", status.message, destructive = true)
             }
+        }
+        section(content, "增强功能") {
+            addSwitchRow(
+                parent = this,
+                title = "状态栏区域点击",
+                detail = if (accessibilityEnabled) "无障碍增强已开启" else "需要开启无障碍服务",
+                checked = accessibilityEnabled,
+                onChanged = { callbacks.requestAccessibilityPermission() },
+            )
         }
         section(content, "操作") {
             addNavigationRow(this, if (overlayPermission) "启动悬浮层" else "授权并返回") {
@@ -389,6 +440,7 @@ internal class NativeSettingsController(
             updateConfig { current -> current.copy(geometry = current.geometry.copy(horizontalOffsetDp = value)) }
         }
         addSwitchRow(content, "扩大胶囊触摸区域", null, config.geometry.enlargedTouchArea) { enabled ->
+            requestCurrentPageRefresh()
             updateConfig { current -> current.copy(geometry = current.geometry.copy(enlargedTouchArea = enabled)) }
         }
         if (config.geometry.enlargedTouchArea) {
@@ -441,9 +493,6 @@ internal class NativeSettingsController(
     private fun buildContainer(content: LinearLayout) {
         addSlider(content, "强度", config.container.strength, OrbConfig.reference().container.strength, 0f..1.5f, decimals = 2) { value ->
             updateConfig { current -> current.copy(container = current.container.copy(strength = value)) }
-        }
-        addSlider(content, "纯黑区域", config.container.blackLevel, OrbConfig.reference().container.blackLevel, 0f..1f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(container = current.container.copy(blackLevel = value)) }
         }
         addSlider(content, "渐隐跨度", config.container.fade, OrbConfig.reference().container.fade, 0f..2f, decimals = 2) { value ->
             updateConfig { current -> current.copy(container = current.container.copy(fade = value)) }
@@ -554,6 +603,7 @@ internal class NativeSettingsController(
             updateConfig { current -> current.copy(motion = current.motion.copy(thinkingDurationMs = value.toInt())) }
         }
         addSwitchRow(content, "自动收起玻璃球", null, config.motion.autoCollapseEnabled) { enabled ->
+            requestCurrentPageRefresh()
             updateConfig { current -> current.copy(motion = current.motion.copy(autoCollapseEnabled = enabled)) }
         }
         if (config.motion.autoCollapseEnabled) {
@@ -599,6 +649,7 @@ internal class NativeSettingsController(
                     ConfigPreset.Bright -> OrbConfig.bright()
                 }
                 setOnClickListener {
+                    requestCurrentPageRefresh()
                     callbacks.applyPreset(preset)
                     Toast.makeText(activity, "已应用$name", Toast.LENGTH_SHORT).show()
                 }
@@ -647,6 +698,7 @@ internal class NativeSettingsController(
                 error.text = "请先粘贴参数 JSON"
                 error.visibility = View.VISIBLE
             } else {
+                requestCurrentPageRefresh()
                 callbacks.importJson(input.text.toString()) { result ->
                     activity.runOnUiThread {
                         if (result.isSuccess) {
@@ -750,7 +802,7 @@ internal class NativeSettingsController(
             setTextColor(themeColor(android.R.attr.colorAccent))
             contentDescription = "$label 还原默认值"
             setOnClickListener {
-                val restored = defaultValue.coerceIn(range)
+                val restored = snapToSliderStep(defaultValue, range, decimals)
                 slider.value = restored
                 updateLabels(restored)
                 onValueChange(restored)
@@ -759,14 +811,17 @@ internal class NativeSettingsController(
         labels.addView(reset, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44f)))
         row.addView(labels, matchWrap())
 
-        val step = 1f / Math.pow(10.0, decimals.coerceIn(0, 3).toDouble()).toFloat()
+        val initialValue = snapToSliderStep(value, range, decimals)
         slider = Slider(activity).apply {
             contentDescription = "$label 调节"
             minimumHeight = dp(48f)
             valueFrom = range.start
             valueTo = range.endInclusive
-            stepSize = step
-            setValue(value.coerceIn(range))
+            // Keep the official Material control continuous, then snap only
+            // the published setting. This avoids Material Slider throwing
+            // when a persisted float is infinitesimally off a discrete step.
+            stepSize = 0f
+            setValue(initialValue)
             // Keep the entire 48dp control target active, including the track
             // ends, so a tap positions the thumb and a drag never gets lost.
             layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48f))
@@ -778,10 +833,10 @@ internal class NativeSettingsController(
             valueText.text = formatParameter(current, suffix, decimals)
             reset.visibility = if (isParameterModified(current, defaultValue, decimals)) View.VISIBLE else View.INVISIBLE
         }
-        updateLabels(value)
+        updateLabels(initialValue)
         slider.addOnChangeListener(Slider.OnChangeListener { _, next, fromUser ->
             if (!fromUser) return@OnChangeListener
-            val snapped = next.coerceIn(range)
+            val snapped = snapToSliderStep(next, range, decimals)
             updateLabels(snapped)
             onValueChange(snapped)
         })
@@ -944,6 +999,7 @@ internal class NativeSettingsController(
             .setMessage("仅恢复“${group.title()}”中的参数。")
             .setNegativeButton("取消", null)
             .setPositiveButton("恢复") { _, _ ->
+                requestCurrentPageRefresh()
                 callbacks.resetGroup(group)
                 Toast.makeText(activity, "已恢复本组默认值", Toast.LENGTH_SHORT).show()
             }
@@ -956,6 +1012,7 @@ internal class NativeSettingsController(
             .setMessage("七组配置都会恢复为参考原版，当前悬浮球状态不会改变。")
             .setNegativeButton("取消", null)
             .setPositiveButton("恢复") { _, _ ->
+                requestCurrentPageRefresh()
                 callbacks.resetAll()
                 Toast.makeText(activity, "已恢复全部默认参数", Toast.LENGTH_SHORT).show()
             }

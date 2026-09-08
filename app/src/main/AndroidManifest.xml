@@ -35,5 +35,18 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-controlled persistent visual glass-orb overlay demo" />
         </service>
+
+        <service
+            android:name=".overlay.GlassOrbAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/glass_orb_accessibility_service" />
+        </service>
     </application>
 </manifest>

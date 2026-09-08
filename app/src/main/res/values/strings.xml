@@ -4,4 +4,6 @@
     <string name="notification_channel_name">玻璃球悬浮层</string>
     <string name="notification_channel_description">保持灵动胶囊在其他应用上方显示</string>
     <string name="notification_title">灵动玻璃球正在运行</string>
+    <string name="accessibility_service_label">灵动玻璃球状态栏点击增强</string>
+    <string name="accessibility_service_description">仅用于让灵动玻璃球在状态栏区域接收点击，不读取屏幕内容、不执行手势、不获取输入文字。</string>
 </resources>

@@ -59,4 +59,10 @@ class SettingsUiLogicTest {
         assertFalse(isParameterModified(restoreParameter(1.234f), 1.234f, 3))
         assertEquals(1.234f, restoreParameter(1.234f), 0f)
     }
+
+    @Test fun sliderInitialValueSnapsPersistedFloatToItsDisplayedStep() {
+        assertEquals(100f, snapToSliderStep(99.99999f, 0f..300f, 0), 0f)
+        assertEquals(1.18f, snapToSliderStep(1.1799998f, 0.9f..1.5f, 2), 0f)
+        assertEquals(24f, snapToSliderStep(Float.NaN, 24f..220f, 1), 0f)
+    }
 }

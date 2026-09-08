@@ -49,6 +49,11 @@ class OrbOverlayService : Service() {
         notificationManager = getSystemService(NotificationManager::class.java)
         createNotificationChannel()
         controller = OverlayWindowController(this, ::handleFatalError)
+        AccessibilityOverlayBridge.attachController(
+            handler = controller::dispatchAccessibilityTouch,
+            provider = controller::currentAccessibilityTouchBounds,
+            onConnectionChanged = controller::refreshTouchBoundsForAccessibility,
+        )
         registerScreenReceiver()
         val powerManager = getSystemService(PowerManager::class.java)
         controller.setScreenOn(powerManager.isInteractive)
@@ -96,6 +101,7 @@ class OrbOverlayService : Service() {
     }
 
     override fun onDestroy() {
+        AccessibilityOverlayBridge.detachController()
         controller.destroy()
         if (receiverRegistered) {
             try {

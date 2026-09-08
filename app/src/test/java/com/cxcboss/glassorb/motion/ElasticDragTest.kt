@@ -38,6 +38,18 @@ class ElasticDragTest {
     }
 
     @Test
+    fun `approach is continuous and never overshoots`() {
+        var value = 0f
+        repeat(12) {
+            val next = ElasticDrag.approach(value, 1f, 1f / 120f, 48f)
+            assertTrue(next >= value)
+            assertTrue(next <= 1f)
+            value = next
+        }
+        assertTrue(value > 0.9f)
+    }
+
+    @Test
     fun `deformation stays within the requested drag and scale bounds`() {
         val deformation = ElasticDrag.deformation(
             offsetXDp = 120f,

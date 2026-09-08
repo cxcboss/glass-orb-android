@@ -23,10 +23,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.cxcboss.glassorb.overlay.OrbOverlayService
+import com.cxcboss.glassorb.overlay.AccessibilityStatus
 import com.cxcboss.glassorb.overlay.OverlayRuntime
 import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
 import kotlinx.coroutines.launch
-import android.window.OnBackInvokedDispatcher
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
             root = root,
             callbacks = NativeSettingsCallbacks(
                 requestOverlayPermission = ::requestOverlayPermission,
+                requestAccessibilityPermission = ::requestAccessibilityPermission,
                 startOverlay = ::startOverlay,
                 showOverlay = ::showOverlay,
                 hideOverlay = ::hideOverlay,
@@ -85,14 +86,15 @@ class MainActivity : ComponentActivity() {
         )
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
-        registerPredictiveBack()
-        if (Build.VERSION.SDK_INT < 33) {
-            onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-                override fun handleOnBackPressed() {
-                    if (!settingsController.goBack()) finish()
-                }
-            })
-        }
+        settingsController.updateAccessibilityEnabled(AccessibilityStatus.isGlassOrbServiceEnabled(this))
+        // ComponentActivity bridges this standard dispatcher callback to the
+        // platform predictive-back contract on Android 13+. Do not move pages
+        // ourselves: the system owns the gesture animation and commits the pop.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (!settingsController.goBack()) finish()
+            }
+        })
         updateOverlayPermission()
 
         lifecycleScope.launch {
@@ -110,6 +112,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         updateOverlayPermission()
+        if (::settingsController.isInitialized) {
+            settingsController.updateAccessibilityEnabled(AccessibilityStatus.isGlassOrbServiceEnabled(this))
+        }
         darkMode = isSystemDarkMode()
         updateSystemBars()
         if (OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
@@ -124,31 +129,6 @@ class MainActivity : ComponentActivity() {
         super.onPause()
     }
 
-    private fun registerPredictiveBack() {
-        if (Build.VERSION.SDK_INT >= 34) {
-            window.onBackInvokedDispatcher.registerOnBackInvokedCallback(
-                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-                settingsController.backAnimationCallback,
-            )
-        } else if (Build.VERSION.SDK_INT >= 33) {
-            window.onBackInvokedDispatcher.registerOnBackInvokedCallback(
-                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
-                settingsController.backInvokedCallback,
-            )
-        }
-    }
-
-    override fun onDestroy() {
-        if (::settingsController.isInitialized) {
-            if (Build.VERSION.SDK_INT >= 34) {
-                window.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(settingsController.backAnimationCallback)
-            } else if (Build.VERSION.SDK_INT >= 33) {
-                window.onBackInvokedDispatcher.unregisterOnBackInvokedCallback(settingsController.backInvokedCallback)
-            }
-        }
-        super.onDestroy()
-    }
-
     private fun requestOverlayPermission() {
         overlayPermissionLauncher.launch(
             Intent(
@@ -156,6 +136,10 @@ class MainActivity : ComponentActivity() {
                 Uri.parse("package:$packageName"),
             ),
         )
+    }
+
+    private fun requestAccessibilityPermission() {
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
     private fun startOverlay() {
