@@ -34,6 +34,7 @@ internal class GlOrbPipeline(
     private var targetWidth = 0
     private var targetHeight = 0
     private var targetScale = 0f
+    private var scenePopulated = false
     private val vertexArray = IntArray(1)
     private val vertexBuffer = IntArray(1)
 
@@ -60,48 +61,15 @@ internal class GlOrbPipeline(
         val effect = requireNotNull(effectTarget)
         val scene = requireNotNull(sceneTarget)
         val config = snapshot.config
-        val morph = softenNegative(snapshot.springProgress - snapshot.collapsePull.coerceIn(0f, 1f),
-            config.motion.closeBounce)
-        val expanded = snapshot.state !is OverlayState.Collapsed && snapshot.state !is OverlayState.Hidden
-        val density = displayDensity * OverlayLayout.renderScale(config.geometry, width, height, displayDensity, morph)
-        val breathing = if (expanded) {
-            1f + config.motion.breathingAmplitude * sin(snapshot.timeSeconds * config.motion.breathingSpeed) *
-                morph.coerceIn(0f, 1f)
-        } else {
-            1f
-        }
-        val pressScale = 1f + (config.motion.pressScale - 1f) * snapshot.pressProgress.coerceIn(0f, 1f)
-        val visualScale = breathing * pressScale
-        val centeredMorph = morph.coerceIn(0f, 1f)
-        val anchorCenterXDp = width / (2f * density) +
-            snapshot.capsuleCenterOffsetDp * displayDensity / density * (1f - centeredMorph)
-        val previewMetrics = ShapeMetrics.interpolate(
-            geometry = config.geometry,
-            anchorTopDp = 0f,
-            anchorCenterXDp = anchorCenterXDp,
-            morph = morph,
-            deformation = snapshot.deformation,
-        )
-        val anchorTopDp = if (snapshot.preview) {
-            ((height / density) - previewMetrics.heightDp * visualScale) * 0.5f
-        } else {
-            // The window origin is already the physical display edge. Do not
-            // add a hidden 2dp inset here: it made a configured 0px offset
-            // render below the real top and broke the capsule/ball anchor.
-            snapshot.capsuleTopOffsetDp * displayDensity / density
-        }
-        val metrics = ShapeMetrics.interpolate(
-            geometry = config.geometry,
-            anchorTopDp = anchorTopDp,
-            anchorCenterXDp = anchorCenterXDp,
-            morph = morph,
-            deformation = snapshot.deformation,
-        )
-        val shapeWidth = metrics.widthDp * density * visualScale
-        val shapeHeight = metrics.heightDp * density * visualScale
-        val topPad = metrics.topDp * density
-        val centerX = metrics.centerXDp * density
-        val centerY = topPad + shapeHeight * 0.5f
+        val frame = ShapeFrame.from(snapshot, width, height, displayDensity)
+        val morph = frame.morph
+        val density = frame.density
+        val visualScale = frame.visualScale
+        val shapeWidth = frame.shapeWidth
+        val shapeHeight = frame.shapeHeight
+        val topPad = frame.top
+        val centerX = frame.centerX
+        val centerY = frame.centerY
         val effectSize = config.geometry.orbDiameterDp * config.geometry.effectScale * density * visualScale
         val weights = RenderTransition.weights(snapshot.thinkingProgress)
         val orbVisibility = smoothstep(0.08f, 0.72f, morph)
@@ -115,50 +83,59 @@ internal class GlOrbPipeline(
         GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glBindVertexArray(vertexArray[0])
 
-        effect.bind()
-        GLES30.glViewport(0, 0, effect.width, effect.height)
-        GLES30.glClearColor(0f, 0f, 0f, 0f)
-        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-        effectProgram.use()
-        effectProgram.vec2("uResolution", effect.width.toFloat(), effect.height.toFloat())
-        effectProgram.float("uTime", snapshot.timeSeconds)
-        effectProgram.float("uWavePhase", snapshot.wavePhase)
-        effectProgram.float("uLayerOpacity", weights.wave * entrance * orbVisibility)
-        effectProgram.float("uDotsOpacity", weights.dots * orbVisibility)
-        effectProgram.float("uAmplitude", config.wave.amplitude)
-        effectProgram.float("uWaveScale", config.wave.scale)
-        effectProgram.float("uAberration", config.wave.chromaticAberration)
-        effectProgram.float("uThickness", config.wave.lineWidth)
-        effectProgram.float("uIntensity", config.wave.intensity)
-        effectProgram.float("uBandFill", config.wave.bandFill)
-        effectProgram.float("uBandFillThickness", config.wave.bandFillThickness)
-        effectProgram.float("uSoftness", config.wave.softness)
-        effectProgram.float("uWhiteClip", config.wave.whiteBloom)
-        effectProgram.float("uHueShift", config.wave.hueShiftDegrees)
-        effectProgram.float("uLow", snapshot.bands.low)
-        effectProgram.float("uMid", snapshot.bands.mid)
-        effectProgram.float("uHigh", snapshot.bands.high)
-        effectProgram.float("uRingRadius", config.dots.ringRadius)
-        effectProgram.float("uDotRadius", config.dots.dotRadius)
-        effectProgram.float("uGlowIntensity", config.dots.glow)
-        effectProgram.float("uRotation", config.dots.rotationSpeed)
-        drawQuad()
+        // The two off-screen passes are the expensive animated part. During
+        // the last part of a collapse the orb is already visually fading out,
+        // so keep their last image and render only the lightweight shape pass.
+        // A resize invalidates scenePopulated and forces one fresh pass.
+        val renderAmbientScene = snapshot.state != OverlayState.Collapsed &&
+            (!snapshot.collapseEffectsFrozen || !scenePopulated)
+        if (renderAmbientScene) {
+            effect.bind()
+            GLES30.glViewport(0, 0, effect.width, effect.height)
+            GLES30.glClearColor(0f, 0f, 0f, 0f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+            effectProgram.use()
+            effectProgram.vec2("uResolution", effect.width.toFloat(), effect.height.toFloat())
+            effectProgram.float("uTime", snapshot.timeSeconds)
+            effectProgram.float("uWavePhase", snapshot.wavePhase)
+            effectProgram.float("uLayerOpacity", weights.wave * entrance * orbVisibility)
+            effectProgram.float("uDotsOpacity", weights.dots * orbVisibility)
+            effectProgram.float("uAmplitude", config.wave.amplitude)
+            effectProgram.float("uWaveScale", config.wave.scale)
+            effectProgram.float("uAberration", config.wave.chromaticAberration)
+            effectProgram.float("uThickness", config.wave.lineWidth)
+            effectProgram.float("uIntensity", config.wave.intensity)
+            effectProgram.float("uBandFill", config.wave.bandFill)
+            effectProgram.float("uBandFillThickness", config.wave.bandFillThickness)
+            effectProgram.float("uSoftness", config.wave.softness)
+            effectProgram.float("uWhiteClip", config.wave.whiteBloom)
+            effectProgram.float("uHueShift", config.wave.hueShiftDegrees)
+            effectProgram.float("uLow", snapshot.bands.low)
+            effectProgram.float("uMid", snapshot.bands.mid)
+            effectProgram.float("uHigh", snapshot.bands.high)
+            effectProgram.float("uRingRadius", config.dots.ringRadius)
+            effectProgram.float("uDotRadius", config.dots.dotRadius)
+            effectProgram.float("uGlowIntensity", config.dots.glow)
+            effectProgram.float("uRotation", config.dots.rotationSpeed)
+            drawQuad()
 
-        scene.bind()
-        GLES30.glViewport(0, 0, targetWidth, targetHeight)
-        GLES30.glClearColor(0f, 0f, 0f, 0f)
-        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
-        containerProgram.use()
-        effect.bindTexture(0)
-        containerProgram.int("uEffectTexture", 0)
-        containerProgram.vec2("uResolution", targetWidth.toFloat(), targetHeight.toFloat())
-        containerProgram.vec2("uEffectOrigin", (centerX - effectSize * 0.5f) * targetScale,
-            (centerY - effectSize * 0.5f) * targetScale)
-        containerProgram.vec2("uEffectSize", effectSize * targetScale, effectSize * targetScale)
-        containerProgram.float("uContainerStrength", config.container.strength * weights.container)
-        containerProgram.float("uContainerFade", config.container.fade)
-        containerProgram.float("uContainerGauss", config.container.gaussian)
-        drawQuad()
+            scene.bind()
+            GLES30.glViewport(0, 0, targetWidth, targetHeight)
+            GLES30.glClearColor(0f, 0f, 0f, 0f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+            containerProgram.use()
+            effect.bindTexture(0)
+            containerProgram.int("uEffectTexture", 0)
+            containerProgram.vec2("uResolution", targetWidth.toFloat(), targetHeight.toFloat())
+            containerProgram.vec2("uEffectOrigin", (centerX - effectSize * 0.5f) * targetScale,
+                (centerY - effectSize * 0.5f) * targetScale)
+            containerProgram.vec2("uEffectSize", effectSize * targetScale, effectSize * targetScale)
+            containerProgram.float("uContainerStrength", config.container.strength * weights.container)
+            containerProgram.float("uContainerFade", config.container.fade)
+            containerProgram.float("uContainerGauss", config.container.gaussian)
+            drawQuad()
+            scenePopulated = true
+        }
 
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
         GLES30.glViewport(0, 0, width, height)
@@ -202,6 +179,7 @@ internal class GlOrbPipeline(
     fun invalidateTargets() {
         targetWidth = 0
         targetHeight = 0
+        scenePopulated = false
     }
 
     fun release() {
@@ -226,6 +204,7 @@ internal class GlOrbPipeline(
         targetWidth = scaledWidth
         targetHeight = scaledHeight
         targetScale = safeScale
+        scenePopulated = false
         val squareSize = max(scaledWidth, scaledHeight)
         effectTarget = RenderTarget(squareSize, squareSize)
         sceneTarget = RenderTarget(scaledWidth, scaledHeight)

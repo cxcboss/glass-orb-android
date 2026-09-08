@@ -13,6 +13,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.BackEventCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
@@ -88,13 +89,18 @@ class MainActivity : ComponentActivity() {
         ViewCompat.requestApplyInsets(root)
         settingsController.updateAccessibilityEnabled(AccessibilityStatus.isGlassOrbServiceEnabled(this))
         // ComponentActivity bridges this standard dispatcher callback to the
-        // platform predictive-back contract on Android 13+. Do not move pages
-        // ourselves: the system owns the gesture animation and commits the pop.
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+        // platform predictive-back contract. Internal pages follow gesture
+        // progress and cancellation; the root delegates back to the system.
+        val backCallback = object : OnBackPressedCallback(settingsController.canGoBack) {
             override fun handleOnBackPressed() {
-                if (!settingsController.goBack()) finish()
+                settingsController.goBack()
             }
-        })
+            override fun handleOnBackStarted(backEvent: BackEventCompat) = settingsController.startPredictiveBack(backEvent)
+            override fun handleOnBackProgressed(backEvent: BackEventCompat) = settingsController.progressPredictiveBack(backEvent)
+            override fun handleOnBackCancelled() = settingsController.cancelPredictiveBack()
+        }
+        settingsController.onBackAvailabilityChanged = { backCallback.isEnabled = it }
+        onBackPressedDispatcher.addCallback(this, backCallback)
         updateOverlayPermission()
 
         lifecycleScope.launch {
@@ -139,10 +145,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestAccessibilityPermission() {
+        // This is the public, OEM-compatible entry point. Android does not
+        // expose a stable public per-service detail action, so do not rely on
+        // hidden/vendor-only settings intents here.
         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
     private fun startOverlay() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !AccessibilityStatus.isGlassOrbServiceEnabled(this)
+        ) {
+            requestAccessibilityPermission()
+            return
+        }
         if (!Settings.canDrawOverlays(this)) {
             requestOverlayPermission()
             return
@@ -160,6 +175,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showOverlay() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !AccessibilityStatus.isGlassOrbServiceEnabled(this)
+        ) {
+            requestAccessibilityPermission()
+            return
+        }
         runCatching {
             OrbOverlayService.show(this)
             OrbOverlayService.setAppAppearance(this, active = true, dark = darkMode)

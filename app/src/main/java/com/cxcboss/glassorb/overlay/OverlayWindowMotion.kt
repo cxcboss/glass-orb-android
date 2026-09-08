@@ -64,7 +64,10 @@ class OverlayWindowMotion(
 
     fun onSwipeMove(deltaXDp: Float, deltaYDp: Float) {
         tracking = true
-        val closingDirection = deltaYDp < 0f && abs(deltaYDp) > abs(deltaXDp)
+        // Accept both diagonal upper-left and upper-right swipes. A modest
+        // vertical component is enough to distinguish them from a horizontal
+        // drag, matching the directional close gesture of Dynamic Island.
+        val closingDirection = deltaYDp < 0f && -deltaYDp >= abs(deltaXDp) * 0.35f
         val collapseDeltaDp = if (closingDirection) -deltaYDp else 0f
         collapsePullTarget = ElasticDrag.collapseProgress(collapseDeltaDp, motion.collapseRangeDp)
 

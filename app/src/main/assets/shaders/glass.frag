@@ -173,21 +173,28 @@ vec4 outsideProjection(vec2 p, vec2 halfSize, float cornerRadius) {
 
 
 void main() {
+    if (uPanelSize.x <= 0.0 || uPanelSize.y <= 0.0) {
+        outColor = vec4(0.0);
+        return;
+    }
     vec2 pixel = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
     vec2 center = uPanelOrigin + uPanelSize * 0.5;
     vec2 halfSize = uPanelSize * 0.5 - vec2(uMarginPx);
     vec2 p = pixel - center;
-    float d = shapeDistance(p, halfSize, uCornerRadius);
+    // Both endpoints share the same mask. Gradually introduce the orb's
+    // superellipse so switching to the idle branch cannot pop the contour.
+    float capsuleD = roundedRectDistance(p, halfSize, uCornerRadius);
+    float d = mix(capsuleD, shapeDistance(p, halfSize, uCornerRadius), uGlassVisibility);
     float shapeAlpha = 1.0 - smoothstep(-1.0, 1.0, d);
     // A collapsed Dynamic Island is ink black: no wave, tint or projection.
     // The optional rim is the short-lived dark-theme launch outline only.
     if (uCollapsed > 0.5 || uGlassVisibility <= 0.0001) {
-        float capsuleD = roundedRectDistance(p, halfSize, uCornerRadius);
+        // Full opacity throughout the interior; coverage antialiasing is
+        // confined to the contour and matches the last animated frame.
         float capsuleAlpha = 1.0 - smoothstep(-1.0, 1.0, capsuleD);
-        float rim = (1.0 - smoothstep(0.0, 2.0, abs(capsuleD))) * uCapsuleOutline * 0.42;
-        float alpha = max(capsuleAlpha, rim);
-        // Premultiplied output: the capsule interior is always RGB=0, A=1.
-        outColor = vec4(vec3(rim) * alpha, alpha);
+        // The capsule is deliberately a single opaque black shape. Do not add
+        // a rim/highlight here: a second translucent edge can leak the scene.
+        outColor = vec4(0.0, 0.0, 0.0, capsuleAlpha);
 		return;
     }
     vec2 grad = shapeGradient(p, halfSize, uCornerRadius, uGradRadialMix);

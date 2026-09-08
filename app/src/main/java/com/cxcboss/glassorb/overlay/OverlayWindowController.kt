@@ -5,6 +5,9 @@ import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.Color
+import android.graphics.Path
+import android.graphics.RectF
+import android.graphics.Region
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -18,6 +21,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowInsets
 import android.view.WindowManager
+import android.widget.FrameLayout
 import com.cxcboss.glassorb.model.OrbConfig
 import com.cxcboss.glassorb.motion.AmbientBands
 import com.cxcboss.glassorb.motion.AnalyticSpring
@@ -25,6 +29,7 @@ import com.cxcboss.glassorb.motion.FrequencyBands
 import com.cxcboss.glassorb.render.OrbTextureView
 import com.cxcboss.glassorb.render.RenderSnapshot
 import com.cxcboss.glassorb.render.ShapeMetrics
+import com.cxcboss.glassorb.render.ShapeFrame
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -32,12 +37,15 @@ class OverlayWindowController(
     private val context: Context,
     private val onFatalError: (String) -> Unit,
 ) {
-    private val windowManager = context.getSystemService(WindowManager::class.java)
+    private var windowManager = context.getSystemService(WindowManager::class.java)
+    private var accessibilityWindow = false
     private val density = context.resources.displayMetrics.density
     private val mainHandler = Handler(Looper.getMainLooper())
     private val choreographer = Choreographer.getInstance()
     private val stateMachine = OverlayStateMachine()
     private val morphSpring = AnalyticSpring(0f, 0.42f, 0.72f)
+    private val collapseReboundSpring = AnalyticSpring(0f, 0.5f, 0.72f)
+    private val collapseSecondaryReboundSpring = AnalyticSpring(0f, 0.28f, 0.8f)
     private val thinkingSpring = AnalyticSpring(0f, 0.34f, 0.82f)
     private val pressSpring = AnalyticSpring(0f, 0.18f, 1f)
     private val gestureReturnSpring = AnalyticSpring(0f, 0.34f, 0.82f)
@@ -47,6 +55,9 @@ class OverlayWindowController(
     private val windowMotion = OverlayWindowMotion(config.motion)
     private var view: OrbTextureView? = null
     private var params: WindowManager.LayoutParams? = null
+    private var renderHost: FrameLayout? = null
+    private var hostParams: WindowManager.LayoutParams? = null
+    private var inputRegion: WindowInputRegion? = null
     private var backgroundDimView: BackgroundDimView? = null
     private var backgroundDimParams: WindowManager.LayoutParams? = null
     private var touchView: View? = null
@@ -70,7 +81,8 @@ class OverlayWindowController(
     private var lastRenderSubmitNanos = 0L
     private var forceRender = false
     private var showDarkCapsuleOutline = false
-
+    private var collapseReleaseVelocityDpPerSecond = 0f
+    private var collapseDirection = 0
     private val thinkingTimeout = Runnable {
         stateMachine.onThinkingTimeout()
         thinkingSpring.target = 0f
@@ -95,6 +107,13 @@ class OverlayWindowController(
 
     fun show(): Boolean {
         if (view != null) return true
+        val windowContext = AccessibilityOverlayBridge.windowContext()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && windowContext == null) {
+            onFatalError("请先在运行与权限中开启无障碍触控服务")
+            return false
+        }
+        accessibilityWindow = windowContext != null
+        windowManager = (windowContext ?: context).getSystemService(WindowManager::class.java)
         if (!Settings.canDrawOverlays(context)) {
             onFatalError("悬浮窗权限已被撤销")
             return false
@@ -106,6 +125,7 @@ class OverlayWindowController(
 
         stateMachine.showCollapsed()
         morphSpring.snapTo(0f)
+        resetCollapseRebound()
         thinkingSpring.snapTo(0f)
         pressSpring.snapTo(0f)
         gestureReturnSpring.snapTo(0f)
@@ -115,6 +135,7 @@ class OverlayWindowController(
         capsuleTopOffsetDp = 0f
         presentationToken += 1
         val textureView = OrbTextureView(context).apply {
+            setOnTouchListener(::onTouch)
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             onRenderFailure = { error -> onFatalError(error.message ?: "OpenGL 渲染初始化失败") }
         }
@@ -122,7 +143,15 @@ class OverlayWindowController(
         val bounds = OverlayLayout.expandedBounds(config.geometry, safe, density)
         val collapsed = OverlayLayout.collapsedBounds(config.geometry, safe, density)
         windowMotion.setExpandedWindow(OverlayLayout.anchorOffsets(bounds, collapsed, density))
-        val layoutParams = createLayoutParams(bounds, touchable = false)
+        val layoutParams = createLayoutParams(bounds, touchable = true)
+        val host = FrameLayout(context).apply {
+            clipChildren = true
+            addView(textureView, FrameLayout.LayoutParams(bounds.width, bounds.height))
+        }
+        // Keep the host origin and canvas fixed for the entire morph. Moving
+        // the window and translating its child are separate compositor updates
+        // and can expose one frame with mismatched coordinates.
+        val initialHostParams = createLayoutParams(bounds, touchable = true)
         val touchBounds = touchBounds(expanded = false, safe = safe)
         val target = View(context).apply { setOnTouchListener(::onTouch) }
         val targetParams = createLayoutParams(touchBounds, touchable = true)
@@ -131,10 +160,13 @@ class OverlayWindowController(
         return try {
             // Place the static dim layer below the GL surface and touch proxy.
             windowManager.addView(dimView, dimParams)
-            windowManager.addView(textureView, layoutParams)
+            windowManager.addView(host, initialHostParams)
+            inputRegion = WindowInputRegion(host)
             windowManager.addView(target, targetParams)
             view = textureView
             params = layoutParams
+            renderHost = host
+            hostParams = initialHostParams
             backgroundDimView = dimView
             backgroundDimParams = dimParams
             touchView = target
@@ -152,8 +184,10 @@ class OverlayWindowController(
             schedulePermissionCheck()
             true
         } catch (error: Throwable) {
+            inputRegion?.close()
+            inputRegion = null
             runCatching { windowManager.removeViewImmediate(target) }
-            runCatching { windowManager.removeViewImmediate(textureView) }
+            runCatching { windowManager.removeViewImmediate(host) }
             runCatching { windowManager.removeViewImmediate(dimView) }
             textureView.release()
             onFatalError(error.message ?: "无法创建悬浮窗")
@@ -173,22 +207,25 @@ class OverlayWindowController(
         hide()
     }
 
-    /** Entry point used by the optional AccessibilityService touch proxy. */
+    /** Receives touch events from the trusted accessibility proxy when needed. */
     internal fun dispatchAccessibilityTouch(host: View, event: MotionEvent): Boolean =
         onTouch(host, event)
 
-    /** Returns the visual hit area so an accessibility overlay can cover the status bar. */
+    /** Returns the capsule proxy bounds for the status-bar edge case. */
     internal fun currentAccessibilityTouchBounds(): IntRect? {
-        if (view == null) return null
+        if (accessibilityWindow || view == null) return null
         val safe = safeBounds()
         return if (stateMachine.state == OverlayState.Collapsed) {
             OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
-        } else {
-            OverlayLayout.orbTouchBounds(config.geometry, safe, density)
-        }
+        } else null
     }
 
     internal fun refreshTouchBoundsForAccessibility() {
+        if (view != null && accessibilityWindow && !AccessibilityOverlayBridge.isConnected()) {
+            hide()
+            onFatalError("无障碍触控服务已关闭，请重新授权后启动")
+            return
+        }
         if (view != null) updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
     }
 
@@ -256,9 +293,15 @@ class OverlayWindowController(
         pressSpring.step(deltaSeconds)
         gestureReturnSpring.step(deltaSeconds)
         windowMotion.step(deltaSeconds)
+        collapseReboundSpring.step(deltaSeconds)
+        collapseSecondaryReboundSpring.step(deltaSeconds)
         if (!trackingSwipe) gestureOffsetDp = gestureReturnSpring.value
-        bands = AmbientBands.smooth(bands, AmbientBands.targetsAt(elapsedSeconds))
-        wavePhase = AmbientBands.advanceWavePhase(wavePhase, bands, deltaSeconds)
+        val collapseEffectsFrozen = stateMachine.state == OverlayState.Collapsing &&
+            morphSpring.value <= COLLAPSE_EFFECT_FREEZE_MORPH
+        if (!collapseEffectsFrozen && stateMachine.state != OverlayState.Collapsed) {
+            bands = AmbientBands.smooth(bands, AmbientBands.targetsAt(elapsedSeconds))
+            wavePhase = AmbientBands.advanceWavePhase(wavePhase, bands, deltaSeconds)
+        }
 
         val stateBeforeAnimationSettle = stateMachine.state
         when (stateMachine.state) {
@@ -272,14 +315,23 @@ class OverlayWindowController(
                 updateTouchBounds(expanded = true)
             }
 
-            OverlayState.Collapsing -> if (isSettled(morphSpring, 0f) && stateElapsedSeconds > 0.10f) {
+            OverlayState.Collapsing -> if (
+                isSettled(morphSpring, 0f) &&
+                    isSettled(collapseReboundSpring, 0f) &&
+                    isSettled(collapseSecondaryReboundSpring, 0f) &&
+                    stateElapsedSeconds > 0.10f
+            ) {
                 stateMachine.onAnimationSettled()
                 morphSpring.snapTo(0f)
                 gestureOffsetDp = 0f
                 gestureReturnSpring.snapTo(0f)
                 windowMotion.onCollapseSettled()
                 pressSpring.snapTo(0f)
+                collapseReleaseVelocityDpPerSecond = 0f
+                collapseDirection = 0
+                resetCollapseRebound()
                 updateBackgroundDim()
+                presentationToken += 1
                 // A settled capsule is rendered by a separate shader branch
                 // with alpha=1. Always submit that final frame; otherwise the
                 // idle optimization can leave the last translucent morph frame
@@ -316,13 +368,17 @@ class OverlayWindowController(
         if (renderDue) {
             forceRender = false
             lastRenderSubmitNanos = frameTimeNanos
-            textureView.submit(
-            RenderSnapshot(
+            val snapshot = RenderSnapshot(
                 config = config,
                 state = stateMachine.state,
                 springProgress = springProgress,
                 gestureOffsetDp = gestureOffsetDp,
                 collapsePull = windowMotion.collapsePull,
+                collapseVelocityDpPerSecond = collapseReleaseVelocityDpPerSecond,
+                collapseDirection = collapseDirection,
+                collapseRebound = collapseReboundSpring.value,
+                collapseSecondaryRebound = collapseSecondaryReboundSpring.value,
+                collapseEffectsFrozen = collapseEffectsFrozen,
                 deformation = windowMotion.deformation,
                 capsuleCenterOffsetDp = capsuleCenterOffsetDp,
                 capsuleTopOffsetDp = capsuleTopOffsetDp,
@@ -337,8 +393,9 @@ class OverlayWindowController(
                 presentationToken = presentationToken,
                 capsuleOutline = showDarkCapsuleOutline && isSystemDarkMode() &&
                     stateMachine.state == OverlayState.Collapsed,
-            ),
             )
+            updateShapeInputRegion(snapshot)
+            textureView.submit(snapshot)
         }
         val pressIsSettled = isSettled(pressSpring, pressSpring.target)
         if (shouldContinueOverlayFrames(stateMachine.state, pressIsSettled)) {
@@ -367,6 +424,7 @@ class OverlayWindowController(
             MotionEvent.ACTION_DOWN -> {
                 cancelledByMultitouch = false
                 trackingSwipe = false
+                collapseDirection = 0
                 downRawX = event.rawX
                 downRawY = event.rawY
                 velocityTracker?.recycle()
@@ -403,22 +461,42 @@ class OverlayWindowController(
                 velocityTracker?.addMovement(event)
                 pressSpring.target = 0f
                 if (!cancelledByMultitouch && trackingSwipe) {
+                    val deltaXPx = event.rawX - downRawX
                     velocityTracker?.computeCurrentVelocity(1_000)
                     val velocityXDp = (velocityTracker?.xVelocity ?: 0f) / density
                     val velocityDp = (velocityTracker?.yVelocity ?: 0f) / density
                     val decision = if (windowMotion.collapsePull > 0f) {
                         SwipeDecision.decide(gestureOffsetDp, velocityDp)
                     } else SwipeDecision.Restore
+                    collapseReleaseVelocityDpPerSecond = if (decision == SwipeDecision.Collapse) {
+                        kotlin.math.hypot(velocityXDp.toDouble(), velocityDp.toDouble()).toFloat()
+                    } else {
+                        0f
+                    }
+                    collapseDirection = if (decision == SwipeDecision.Collapse) {
+                        when {
+                            deltaXPx < -touchSlop -> -1
+                            deltaXPx > touchSlop -> 1
+                            velocityXDp < -120f -> -1
+                            velocityXDp > 120f -> 1
+                            else -> 0
+                        }
+                    } else {
+                        0
+                    }
+                    if (decision == SwipeDecision.Collapse) {
+                        startCollapseRebound()
+                    } else {
+                        resetCollapseRebound()
+                    }
                     stateMachine.onSwipeEnd(decision)
+                    updateBackgroundDim()
                     val release = windowMotion.release(
                         decision = decision,
                         velocityXDpPerSecond = velocityXDp,
                         velocityYDpPerSecond = velocityDp,
                     )
-                    morphSpring.configure(
-                        if (decision == SwipeDecision.Collapse) config.motion.closeResponse else config.motion.openResponse,
-                        if (decision == SwipeDecision.Collapse) config.motion.closeDamping else config.motion.openDamping,
-                    )
+                    if (decision == SwipeDecision.Collapse) configureCollapseSpring() else configureExpandSpring()
                     morphSpring.seed(release.value, release.velocity, release.target)
                     gestureReturnSpring.configure(0.34f, 0.82f)
                     gestureReturnSpring.seed(gestureOffsetDp, velocityDp, 0f)
@@ -426,6 +504,8 @@ class OverlayWindowController(
                         mainHandler.removeCallbacks(thinkingTimeout)
                         thinkingSpring.target = 0f
                     } else {
+                        collapseReleaseVelocityDpPerSecond = 0f
+                        collapseDirection = 0
                         scheduleAutoCollapse()
                     }
                     markStateStart()
@@ -456,11 +536,14 @@ class OverlayWindowController(
     }
 
     private fun beginExpand() {
+        collapseReleaseVelocityDpPerSecond = 0f
+        collapseDirection = 0
+        resetCollapseRebound()
         mainHandler.removeCallbacks(autoCollapseTimeout)
         stateMachine.onTap()
         updateBackgroundDim()
         updateTouchBounds(expanded = true)
-        morphSpring.configure(config.motion.openResponse, config.motion.openDamping)
+        configureExpandSpring()
         morphSpring.snapTo(0f)
         morphSpring.target = 1f
         markStateStart()
@@ -481,11 +564,49 @@ class OverlayWindowController(
         if (trackingSwipe) {
             val release = windowMotion.release(SwipeDecision.Restore, 0f, 0f)
             stateMachine.onSwipeEnd(SwipeDecision.Restore)
-            morphSpring.configure(config.motion.openResponse, config.motion.openDamping)
+            configureExpandSpring()
             morphSpring.seed(release.value, 0f, 1f)
             gestureReturnSpring.seed(gestureOffsetDp, 0f, 0f)
         }
+        collapseReleaseVelocityDpPerSecond = 0f
+        collapseDirection = 0
+        resetCollapseRebound()
         finishTouch()
+    }
+
+    /** Seeds the two-stage capsule overshoot when a close gesture is released. */
+    private fun startCollapseRebound() {
+        val speedFactor = (collapseReleaseVelocityDpPerSecond / 1_400f).coerceIn(0f, 1f)
+        val impulse = 0.65f + speedFactor * 0.95f
+        val directionalBoost = if (collapseDirection == 0) 1f else 1.08f
+        collapseReboundSpring.configure(
+            if (config.geometry.expandBelowCapsule) 0.5f else 0.56f,
+            if (config.geometry.expandBelowCapsule) 0.7f else 0.76f,
+        )
+        collapseSecondaryReboundSpring.configure(
+            if (config.geometry.expandBelowCapsule) 0.28f else 0.32f,
+            if (config.geometry.expandBelowCapsule) 0.78f else 0.82f,
+        )
+        collapseReboundSpring.seed(0f, impulse * directionalBoost, 0f)
+        collapseSecondaryReboundSpring.seed(0f, -impulse * 0.42f, 0f)
+    }
+
+    /** Uses a slightly longer response so the expand motion reads as one continuous reveal. */
+    private fun configureExpandSpring() {
+        morphSpring.configure(config.motion.openResponse * 1.18f, config.motion.openDamping)
+    }
+
+    /** Keeps the capsule close from snapping ahead of its layered rebound. */
+    private fun configureCollapseSpring() {
+        morphSpring.configure(
+            config.motion.closeResponse * 1.16f,
+            (config.motion.closeDamping + 0.05f).coerceAtMost(0.95f),
+        )
+    }
+
+    private fun resetCollapseRebound() {
+        collapseReboundSpring.snapTo(0f)
+        collapseSecondaryReboundSpring.snapTo(0f)
     }
 
     private fun finishTouch() {
@@ -504,6 +625,7 @@ class OverlayWindowController(
             layoutParams.x != bounds.left || layoutParams.y != bounds.top
         if (!layoutChanged) {
             windowMotion.setExpandedWindow(OverlayLayout.anchorOffsets(bounds, collapsed, density))
+            updateHostBounds()
             updateBackgroundDim()
             return
         }
@@ -515,11 +637,28 @@ class OverlayWindowController(
         presentationToken += 1
         updateRenderAnchors(if (stateMachine.state is OverlayState.SwipeTracking) 1f else morphSpring.value)
         try {
-            windowManager.updateViewLayout(textureView, layoutParams)
+            textureView.layoutParams = FrameLayout.LayoutParams(bounds.width, bounds.height)
+            updateHostBounds()
             updateBackgroundDim()
         } catch (error: Throwable) {
             onFatalError(error.message ?: "无法更新悬浮窗位置")
         }
+    }
+
+    /** Only configuration/display changes may move the host, never a morph. */
+    private fun updateHostBounds() {
+        val host = renderHost ?: return
+        val hostLayout = hostParams ?: return
+        val canvas = params ?: return
+        val bounds = IntRect(canvas.x, canvas.y, canvas.x + canvas.width, canvas.y + canvas.height)
+        if (hostLayout.x == bounds.left && hostLayout.y == bounds.top &&
+            hostLayout.width == bounds.width && hostLayout.height == bounds.height) return
+        hostLayout.x = bounds.left
+        hostLayout.y = bounds.top
+        hostLayout.width = bounds.width
+        hostLayout.height = bounds.height
+        runCatching { windowManager.updateViewLayout(host, hostLayout) }
+            .onFailure { onFatalError(it.message ?: "无法更新渲染窗口") }
     }
 
     private fun scheduleAutoCollapse() {
@@ -533,24 +672,28 @@ class OverlayWindowController(
         if (stateMachine.state != OverlayState.Wave && stateMachine.state != OverlayState.Thinking) return
         mainHandler.removeCallbacks(thinkingTimeout)
         stateMachine.beginAutomaticCollapse()
+        collapseReleaseVelocityDpPerSecond = 0f
+        collapseDirection = 0
+        startCollapseRebound()
+        updateBackgroundDim()
         thinkingSpring.target = 0f
-        morphSpring.configure(config.motion.closeResponse, config.motion.closeDamping)
+        configureCollapseSpring()
         morphSpring.seed(morphSpring.value, 0f, 0f)
         markStateStart()
     }
 
     private fun updateTouchBounds(expanded: Boolean) {
         val target = touchView ?: return
+        // The GL host supplies the exact animated shape region while expanded.
+        // A rectangular proxy would intercept the transparent circle corners.
+        target.visibility = if (expanded) View.INVISIBLE else View.VISIBLE
         val layoutParams = touchParams ?: return
         val safe = safeBounds()
         val bounds = touchBounds(expanded, safe)
         AccessibilityOverlayBridge.updateTouchBounds(
-            if (AccessibilityOverlayBridge.isConnected()) {
-                if (expanded) OverlayLayout.orbTouchBounds(config.geometry, safe, density)
-                else OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
-            } else {
-                null
-            },
+            if (AccessibilityOverlayBridge.isConnected() && !accessibilityWindow) {
+                if (expanded) null else OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
+            } else null,
         )
         if (layoutParams.width == bounds.width && layoutParams.height == bounds.height &&
             layoutParams.x == bounds.left && layoutParams.y == bounds.top) return
@@ -560,6 +703,25 @@ class OverlayWindowController(
         layoutParams.y = bounds.top
         runCatching { windowManager.updateViewLayout(target, layoutParams) }
             .onFailure { onFatalError(it.message ?: "无法更新触摸区域") }
+    }
+
+    private fun updateShapeInputRegion(snapshot: RenderSnapshot) {
+        val canvas = params ?: return
+        val region = Region()
+        if (snapshot.state == OverlayState.Collapsed ||
+            (snapshot.state == OverlayState.Collapsing && snapshot.collapseEffectsFrozen)
+        ) {
+            val bounds = OverlayLayout.capsuleTouchBounds(config.geometry, safeBounds(), density)
+            region.set(bounds.left - canvas.x, bounds.top - canvas.y,
+                bounds.right - canvas.x, bounds.bottom - canvas.y)
+        } else {
+            val shape = ShapeFrame.from(snapshot, canvas.width, canvas.height, density)
+            val rect = RectF(shape.centerX - shape.shapeWidth / 2f, shape.top,
+                shape.centerX + shape.shapeWidth / 2f, shape.top + shape.shapeHeight)
+            val path = Path().apply { addOval(rect, Path.Direction.CW) }
+            region.setPath(path, Region(0, 0, canvas.width, canvas.height))
+        }
+        inputRegion?.update(region)
     }
 
     private fun safeBounds(): IntRect {
@@ -612,7 +774,9 @@ class OverlayWindowController(
     private fun createLayoutParams(bounds: IntRect, touchable: Boolean) = WindowManager.LayoutParams(
         bounds.width,
         bounds.height,
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (accessibilityWindow) {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         } else {
             @Suppress("DEPRECATION")
@@ -642,7 +806,9 @@ class OverlayWindowController(
         return WindowManager.LayoutParams(
             physical.width,
             physical.height,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (accessibilityWindow) {
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             } else {
                 @Suppress("DEPRECATION")
@@ -658,6 +824,11 @@ class OverlayWindowController(
             gravity = Gravity.TOP or Gravity.START
             x = physical.left
             y = physical.top
+            // Keep the separate non-touchable dim window under Android's
+            // untrusted-touch opacity threshold. The view shader itself uses
+            // solid black at the gradient start, so the visible maximum stays
+            // exactly 28% while pass-through remains allowed on Android 12+.
+            alpha = 0.28f
             title = "Glass orb background dim"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -670,11 +841,15 @@ class OverlayWindowController(
         val dimView = backgroundDimView ?: return
         val dimParams = backgroundDimParams ?: return
         val physical = physicalBounds()
-        val orbBounds = OverlayLayout.expandedBounds(config.geometry, safeBounds(), density)
-        val gradientHeight = (orbBounds.bottom + (38f * density).roundToInt())
-            .coerceIn(1, physical.height)
-        val expanded = stateMachine.state != OverlayState.Collapsed && stateMachine.state != OverlayState.Hidden
-        dimView.update(config.container.backgroundDimEnabled && expanded, gradientHeight)
+        val gradientBottom = OverlayLayout.expandedVisualBottomPx(config.geometry, safeBounds(), density)
+        val gradientHeight = (gradientBottom - physical.top).coerceIn(1, physical.height)
+        val expanded = stateMachine.state != OverlayState.Collapsed &&
+            stateMachine.state != OverlayState.Hidden && stateMachine.state != OverlayState.Collapsing
+        dimView.update(
+            config.container.backgroundDimEnabled && expanded,
+            gradientHeight,
+            dimTransitionDurationMs(),
+        )
         val changed = dimParams.width != physical.width || dimParams.height != physical.height ||
             dimParams.x != physical.left || dimParams.y != physical.top
         if (changed) {
@@ -685,6 +860,16 @@ class OverlayWindowController(
             runCatching { windowManager.updateViewLayout(dimView, dimParams) }
                 .onFailure { onFatalError(it.message ?: "无法更新背景遮罩") }
         }
+    }
+
+    /** Keeps the dim layer's alpha transition on the same slower timing as the shape spring. */
+    private fun dimTransitionDurationMs(): Long {
+        val response = when (stateMachine.state) {
+            OverlayState.Expanding -> config.motion.openResponse * 1.18f
+            OverlayState.Collapsing, OverlayState.Collapsed -> config.motion.closeResponse * 1.16f
+            else -> config.motion.openResponse * 1.18f
+        }
+        return (response * 1_000f * 1.05f).roundToInt().toLong().coerceIn(300L, 900L)
     }
 
     private fun physicalBounds(): IntRect {
@@ -701,6 +886,11 @@ class OverlayWindowController(
         removeFrame()
         mainHandler.removeCallbacks(permissionCheck)
         val textureView = view
+        inputRegion?.close()
+        inputRegion = null
+        val host = renderHost
+        renderHost = null
+        hostParams = null
         view = null
         params = null
         touchView?.let { runCatching { windowManager.removeViewImmediate(it) } }
@@ -712,7 +902,7 @@ class OverlayWindowController(
         AccessibilityOverlayBridge.updateTouchBounds(null)
         if (textureView == null) return
         try {
-            windowManager.removeViewImmediate(textureView)
+            windowManager.removeViewImmediate(host ?: textureView)
         } catch (_: Throwable) {
             textureView.release()
         }
@@ -774,6 +964,10 @@ class OverlayWindowController(
     }
 
     private companion object {
+        // Freeze the expensive wave/dots passes after the orb has mostly
+        // collapsed. The shape pass continues at display cadence for a smooth
+        // final morph and rebound.
+        const val COLLAPSE_EFFECT_FREEZE_MORPH = 0.36f
         const val PERMISSION_CHECK_INTERVAL_MS = 15_000L
     }
 }

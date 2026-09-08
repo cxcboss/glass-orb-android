@@ -12,6 +12,17 @@ import org.junit.Test
 
 /** Real GLES readback catches opacity regressions that JVM/config tests cannot see. */
 class GlassPixelsTest {
+    @Test fun blackTransitionEndpointsMatchIdleFrame() = withRenderer { renderer ->
+        val config = OrbConfig()
+        val idle = render(renderer, RenderSnapshot(config, OverlayState.Collapsed, 0f))
+        for (state in listOf(OverlayState.Expanding, OverlayState.Collapsing)) {
+            val endpoint = render(renderer, RenderSnapshot(config, state, 0f))
+            for (i in 0 until idle.capacity()) {
+                assertEquals("same endpoint pixel $i in $state", idle.get(i), endpoint.get(i))
+            }
+        }
+    }
+
     @Test fun collapsedCapsuleIsPureBlack() = withRenderer { renderer ->
         val pixels = render(renderer, RenderSnapshot(OrbConfig(), OverlayState.Collapsed, 0f))
         for (x in 60..130 step 10) {

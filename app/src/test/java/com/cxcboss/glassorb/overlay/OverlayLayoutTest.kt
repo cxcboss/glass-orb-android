@@ -1,6 +1,7 @@
 package com.cxcboss.glassorb.overlay
 
 import com.cxcboss.glassorb.model.GeometryConfig
+import com.cxcboss.glassorb.model.HorizontalAnchor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -118,5 +119,25 @@ class OverlayLayoutTest {
         )
 
         assertEquals(300, bounds.top)
+    }
+
+    @Test
+    fun `enlarged capsule touch bounds stay centered on the visual capsule`() {
+        val safe = IntRect(left = 0, top = 0, right = 1080, bottom = 2280)
+        val geometry = GeometryConfig(
+            capsuleWidthDp = 120f,
+            capsuleHeightDp = 36f,
+            verticalOffsetDp = 120f,
+            horizontalAnchor = HorizontalAnchor.Center,
+            enlargedTouchArea = true,
+            touchAreaScale = 2f,
+        )
+        val visual = OverlayLayout.collapsedBounds(geometry, safe, 3f)
+        val touch = OverlayLayout.capsuleTouchBounds(geometry, safe, 3f)
+
+        assertEquals(visual.left + visual.width / 2f, touch.left + touch.width / 2f, 1f)
+        assertEquals(visual.top + visual.height / 2f, touch.top + touch.height / 2f, 1f)
+        assertTrue(touch.width >= visual.width)
+        assertTrue(touch.height >= visual.height)
     }
 }

@@ -14,7 +14,7 @@ class OrbConfigTest {
         assertEquals(128f, config.geometry.orbDiameterDp, 0f)
         assertEquals(0.72f, config.glass.highlightAmount, 0f)
         assertEquals(1.6f, config.glass.causticAmount, 0f)
-        assertEquals(false, config.container.backgroundDimEnabled)
+        assertEquals(true, config.container.backgroundDimEnabled)
         assertEquals(30_000f, config.wave.bandFill, 0f)
         assertEquals(0.055f, config.dots.glow, 0f)
         assertEquals(48f, config.motion.collapseRangeDp, 0f)

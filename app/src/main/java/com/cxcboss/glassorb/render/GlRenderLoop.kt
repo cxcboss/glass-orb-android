@@ -13,6 +13,7 @@ import android.os.HandlerThread
 import android.util.Log
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 internal class GlRenderLoop(
@@ -27,6 +28,7 @@ internal class GlRenderLoop(
     private val thread = HandlerThread("GlassOrb-GL").apply { start() }
     private val handler = Handler(thread.looper)
     private val latestSnapshot = AtomicReference<RenderSnapshot?>(null)
+    private val submitQueued = AtomicBoolean(false)
 
     private var width = initialWidth.coerceAtLeast(1)
     private var height = initialHeight.coerceAtLeast(1)
@@ -75,6 +77,11 @@ internal class GlRenderLoop(
         }
     }
 
+    private val submitRunnable = Runnable {
+        submitQueued.set(false)
+        scheduleFrame(0)
+    }
+
     init {
         handler.post {
             try {
@@ -90,7 +97,12 @@ internal class GlRenderLoop(
 
     fun submit(snapshot: RenderSnapshot) {
         latestSnapshot.set(snapshot)
-        handler.post { scheduleFrame(0) }
+        // Coalesce producer notifications while GL is rendering. Without
+        // this gate, a slow frame leaves one Handler message per UI vsync in
+        // the queue, which makes a close animation visibly lag behind.
+        if (submitQueued.compareAndSet(false, true)) {
+            handler.post(submitRunnable)
+        }
     }
 
     fun resize(width: Int, height: Int) {

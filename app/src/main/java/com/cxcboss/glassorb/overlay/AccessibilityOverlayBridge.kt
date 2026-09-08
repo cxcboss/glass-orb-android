@@ -4,9 +4,9 @@ import android.view.MotionEvent
 import android.view.View
 
 /**
- * Small in-process bridge between the foreground overlay service and the
- * optional AccessibilityService. The latter owns the higher-priority touch
- * proxy; the renderer and gesture state remain owned by OverlayWindowController.
+ * Process-local bridge between the foreground overlay and the explicitly
+ * enabled accessibility service. The service is used only for the trusted
+ * status-bar touch window; it does not inspect accessibility content.
  */
 internal object AccessibilityOverlayBridge {
     private var service: GlassOrbAccessibilityService? = null
@@ -23,8 +23,11 @@ internal object AccessibilityOverlayBridge {
         touchHandler = handler
         boundsProvider = provider
         connectionChanged = onConnectionChanged
-        service?.updateTouchBounds(provider())
-        onConnectionChanged()
+        service?.let { connected ->
+            runCatching { connected.updateTouchBounds(provider()) }
+                .onFailure { /* The service must remain alive if a window is rebuilding. */ }
+        }
+        runCatching { onConnectionChanged() }
     }
 
     @Synchronized
@@ -38,15 +41,15 @@ internal object AccessibilityOverlayBridge {
     @Synchronized
     fun connect(accessibilityService: GlassOrbAccessibilityService) {
         service = accessibilityService
-        accessibilityService.updateTouchBounds(boundsProvider?.invoke())
-        connectionChanged?.invoke()
+        runCatching { accessibilityService.updateTouchBounds(boundsProvider?.invoke()) }
+        runCatching { connectionChanged?.invoke() }
     }
 
     @Synchronized
     fun disconnect(accessibilityService: GlassOrbAccessibilityService) {
         if (service === accessibilityService) {
             service = null
-            connectionChanged?.invoke()
+            runCatching { connectionChanged?.invoke() }
         }
     }
 
@@ -54,8 +57,11 @@ internal object AccessibilityOverlayBridge {
     fun isConnected(): Boolean = service != null
 
     @Synchronized
+    fun windowContext(): GlassOrbAccessibilityService? = service
+
+    @Synchronized
     fun updateTouchBounds(bounds: IntRect?) {
-        service?.updateTouchBounds(bounds)
+        runCatching { service?.updateTouchBounds(bounds) }
     }
 
     @Synchronized

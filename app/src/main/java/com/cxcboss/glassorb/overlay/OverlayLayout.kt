@@ -26,11 +26,27 @@ object OverlayLayout {
 
     fun capsuleTouchBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {
         val scale = if (geometry.enlargedTouchArea) geometry.touchAreaScale else 1f
-        return placedBounds(
-            (geometry.capsuleWidthDp * scale).dpToPx(density),
-            (geometry.capsuleHeightDp * scale).dpToPx(density),
-            geometry, safeBoundsPx, density,
-        )
+        val visual = collapsedBounds(geometry, safeBoundsPx, density)
+        if (scale <= 1f) return visual
+
+        // Enlarge around the rendered capsule's actual center. Scaling the
+        // requested width/height before placement shifts left/right presets
+        // and pins the top edge, which makes the hit area feel detached from
+        // the capsule. Keep the center fixed first, then clamp only when the
+        // display edge leaves no room.
+        val width = (visual.width * scale).roundToInt()
+            .coerceAtLeast(visual.width)
+            .coerceAtMost(safeBoundsPx.width.coerceAtLeast(1))
+        val height = (visual.height * scale).roundToInt()
+            .coerceAtLeast(visual.height)
+            .coerceAtMost(safeBoundsPx.height.coerceAtLeast(1))
+        val centerX = (visual.left + visual.right) * 0.5f
+        val centerY = (visual.top + visual.bottom) * 0.5f
+        val left = (centerX - width * 0.5f).roundToInt()
+            .coerceIn(safeBoundsPx.left, safeBoundsPx.right - width)
+        val top = (centerY - height * 0.5f).roundToInt()
+            .coerceIn(safeBoundsPx.top, safeBoundsPx.bottom - height)
+        return IntRect(left, top, left + width, top + height)
     }
 
     fun orbTouchBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect =
@@ -61,7 +77,38 @@ object OverlayLayout {
     fun expandedBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {
         val visualSizeDp = expandedCanvasDp(geometry)
         val size = max(visualSizeDp, MIN_TOUCH_DP).dpToPx(density)
-        return placedBounds(size, size, geometry, safeBoundsPx, density)
+        // Keep the capsule anchor unchanged while reserving room below it for
+        // the orb. The 20 px gap is physical pixels, so convert it to dp only
+        // for the window's measured height.
+        val dropDp = if (geometry.expandBelowCapsule) {
+            geometry.capsuleHeightDp + EXPAND_BELOW_GAP_PX / density
+        } else {
+            0f
+        }
+        val height = (visualSizeDp + dropDp).dpToPx(density)
+        val placed = placedBounds(size, height, geometry, safeBoundsPx, density)
+        // The capsule can briefly rebound above its settled top. Reserve a
+        // physical top margin inside the rendering window so that the Texture
+        // surface does not clip that part of the animation.
+        val topRoom = EXPAND_REBOUND_TOP_MARGIN_PX.roundToInt()
+            .coerceAtMost((placed.top - safeBoundsPx.top).coerceAtLeast(0))
+        return if (topRoom == 0) placed else placed.copy(top = placed.top - topRoom)
+    }
+
+    const val EXPAND_BELOW_GAP_PX = 20f
+    private const val EXPAND_REBOUND_TOP_MARGIN_PX = 24f
+
+    /** Screen-space end of the dim gradient, based on the visible orb extent. */
+    fun expandedVisualBottomPx(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): Int {
+        val capsule = collapsedBounds(geometry, safeBoundsPx, density)
+        val capsuleVisualHeightPx = geometry.capsuleHeightDp.dpToPx(density)
+        val orbTopPx = capsule.top + capsuleVisualHeightPx +
+            if (geometry.expandBelowCapsule) EXPAND_BELOW_GAP_PX.roundToInt() else 0
+        val orbExtentDp = maxOf(
+            geometry.orbDiameterDp,
+            geometry.orbDiameterDp * geometry.effectScale,
+        ) + geometry.outerMarginDp
+        return orbTopPx + orbExtentDp.dpToPx(density)
     }
 
     fun expandedCanvasDp(geometry: GeometryConfig): Float = maxOf(
@@ -70,8 +117,8 @@ object OverlayLayout {
     ) + geometry.outerMarginDp * 2f
 
     fun renderScale(geometry: GeometryConfig, width: Int, height: Int, density: Float, morph: Float): Float {
-        val capsuleFit = minOf(1f, width / (geometry.capsuleWidthDp * density),
-            height / (geometry.capsuleHeightDp * density))
+        val capsuleFit = minOf(1f, width / (geometry.capsuleWidthDp * density).coerceAtLeast(1f),
+            height / (geometry.capsuleHeightDp * density).coerceAtLeast(1f))
         val expandedFit = minOf(1f, minOf(width, height) / (expandedCanvasDp(geometry) * density))
         return capsuleFit + (expandedFit - capsuleFit) * morph.coerceIn(0f, 1f)
     }
@@ -109,5 +156,5 @@ object OverlayLayout {
 
     private fun Float.dpToPx(density: Float): Int = (this * density).roundToInt()
 
-    private const val MIN_TOUCH_DP = 48f
+    private const val MIN_TOUCH_DP = 38f
 }

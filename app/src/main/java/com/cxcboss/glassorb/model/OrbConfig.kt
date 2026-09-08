@@ -19,6 +19,7 @@ data class GeometryConfig(
     val horizontalAnchor: HorizontalAnchor = HorizontalAnchor.Center,
     val enlargedTouchArea: Boolean = false,
     val touchAreaScale: Float = 1.35f,
+    val expandBelowCapsule: Boolean = false,
 )
 
 data class GlassConfig(
@@ -35,10 +36,10 @@ data class GlassConfig(
 )
 
 data class ContainerConfig(
-    val strength: Float = 0.9f,
+    val strength: Float = 2f,
     val fade: Float = 1f,
     val gaussian: Float = 8f,
-    val backgroundDimEnabled: Boolean = false,
+    val backgroundDimEnabled: Boolean = true,
 )
 
 data class WaveConfig(
@@ -104,8 +105,8 @@ data class OrbConfig(
         return copy(
             schemaVersion = CURRENT_SCHEMA_VERSION,
             geometry = geometry.copy(
-                capsuleWidthDp = geometry.capsuleWidthDp.safeRange(24f, 220f, defaults.geometry.capsuleWidthDp),
-                capsuleHeightDp = geometry.capsuleHeightDp.safeRange(24f, 64f, defaults.geometry.capsuleHeightDp),
+                capsuleWidthDp = geometry.capsuleWidthDp.safeRange(0f, 220f, defaults.geometry.capsuleWidthDp),
+                capsuleHeightDp = geometry.capsuleHeightDp.safeRange(0f, 64f, defaults.geometry.capsuleHeightDp),
                 orbDiameterDp = geometry.orbDiameterDp.safeRange(88f, 220f, defaults.geometry.orbDiameterDp),
                 outerMarginDp = geometry.outerMarginDp.safeRange(8f, 48f, defaults.geometry.outerMarginDp),
                 effectScale = geometry.effectScale.safeRange(0.9f, 1.5f, defaults.geometry.effectScale),
@@ -131,7 +132,7 @@ data class OrbConfig(
                 lightSoftness = glass.lightSoftness.safeRange(0.5f, 10f, defaults.glass.lightSoftness),
             ),
             container = container.copy(
-                strength = container.strength.safeRange(0f, 1.5f, defaults.container.strength),
+                strength = container.strength.safeRange(0f, 4f, defaults.container.strength),
                 fade = container.fade.safeRange(0f, 2f, defaults.container.fade),
                 gaussian = container.gaussian.safeRange(0.5f, 16f, defaults.container.gaussian),
             ),

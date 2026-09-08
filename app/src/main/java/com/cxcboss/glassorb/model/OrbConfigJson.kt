@@ -18,6 +18,7 @@ object OrbConfigJson {
                 put("horizontalAnchor", value.geometry.horizontalAnchor.name)
                 put("enlargedTouchArea", value.geometry.enlargedTouchArea)
                 put("touchAreaScale", value.geometry.touchAreaScale)
+                put("expandBelowCapsule", value.geometry.expandBelowCapsule)
             })
             put("glass", JSONObject().apply {
                 put("internalDepth", value.glass.internalDepth)
@@ -108,6 +109,7 @@ object OrbConfigJson {
                 horizontalAnchor = geometry.enum("horizontalAnchor", defaults.geometry.horizontalAnchor),
                 enlargedTouchArea = geometry.boolean("enlargedTouchArea", defaults.geometry.enlargedTouchArea),
                 touchAreaScale = geometry.float("touchAreaScale", defaults.geometry.touchAreaScale),
+                expandBelowCapsule = geometry.boolean("expandBelowCapsule", defaults.geometry.expandBelowCapsule),
             ),
             glass = defaults.glass.copy(
                 internalDepth = glass.float("internalDepth", defaults.glass.internalDepth),

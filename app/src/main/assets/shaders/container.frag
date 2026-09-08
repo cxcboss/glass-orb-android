@@ -27,11 +27,14 @@ void main() {
     float t = clamp(yFromTop / fadeSpan, 0.0, 1.0);
     float verticalFade = exp(-uContainerGauss * t * t);
     float edge = smoothstep(0.0, 0.14, min(effectUv.x, 1.0 - effectUv.x));
-    float containerAlpha = clamp(uContainerStrength, 0.0, 1.0) * verticalFade * edge;
+    // Values above 1 extend the fully dark part farther down the orb instead
+    // of being discarded. At the high end this becomes a solid black field.
+    float containerAlpha = clamp(uContainerStrength, 0.0, 4.0) * verticalFade * edge;
     float inverseEffectAlpha = 1.0 - clamp(effect.a, 0.0, 1.0);
-    // Keep the generated effect RGB intact and put the dark field behind it
-    // through alpha (effect OVER container). This preserves the smooth upper
-    // shading without introducing a black rectangle or a black cap in the orb.
+    // Composite the generated effect over a black field in straight-alpha
+    // space. Strength 0 preserves the effect; high strength makes empty
+    // regions genuinely black instead of merely more opaque.
     float sceneAlpha = clamp(effect.a + containerAlpha * inverseEffectAlpha, 0.0, 1.0);
-    outColor = vec4(effect.rgb, sceneAlpha);
+    vec3 sceneRgb = (effect.rgb * clamp(effect.a, 0.0, 1.0)) / max(sceneAlpha, 0.0001);
+    outColor = vec4(sceneRgb, sceneAlpha);
 }

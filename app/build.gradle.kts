@@ -8,12 +8,14 @@ android {
 
     defaultConfig {
         applicationId = "com.cxcboss.glassorb"
-        // Android 10 is the lowest supported platform for the modern View
-        // surface and edge-to-edge/window insets behavior used by the app.
+        // Keep the compatibility target at Android 11 so the platform's
+        // touch-region callback remains available to the exact input-shape
+        // implementation. The app still compiles against the current SDK and
+        // uses explicit edge-to-edge/insets handling in the settings activity.
         minSdk = 29
-        targetSdk = 36
-        versionCode = 7
-        versionName = "1.5.1-demo"
+        targetSdk = 30
+        versionCode = 17
+        versionName = "2.0.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

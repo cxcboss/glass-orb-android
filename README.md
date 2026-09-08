@@ -1,70 +1,36 @@
-# 灵动玻璃球 · Android UI Demo
+# 灵动玻璃球
 
-纯黑灵动岛胶囊，点击舒缓展开为透明玻璃球。Kotlin / Android 平台原生 View 设置页，TextureView / EGL / OpenGL ES 3.0 悬浮渲染，无 WebView。
+原生 Android 设置界面与 OpenGL ES 3.0 悬浮玻璃球。
 
-## 1.5.1-demo
+## 2.0.9 · 构建 17
 
-本版重构 App 内设置页：采用官方 Material 3 View（`MaterialToolbar`、`MaterialSwitch`、`Slider`、`MaterialRadioButton`、`TextInputLayout` 和 `MaterialAlertDialogBuilder`）配合 Android 原生列表容器，跟随系统浅深色和 edge-to-edge 安全区。移除底栏、底部参数弹层、内置 GLES 实时预览和彩色背景；设置页不再持续提交渲染帧。二级页面由轻量原生导航栈管理，返回按钮、系统返回和 Android 预测性返回手势共享同一栈。
+- 设置首页重新分类；各级页面统一浅色、深色模块样式。关于与许可集中收纳，不在首页展示详情。
+- 二级返回接入 Android 预测性返回的开始、进度、取消和完成回调；首页保留系统返回行为。
+- 背景从顶部约 28% 黑色渐变至透明，展开、上滑收起与自动收起继续淡入淡出，并与展开动画同步节奏。
+- 新增默认关闭的“向下展开”：胶囊位置保持不变，球体顶部从胶囊底部留出 20 个物理像素后展开。
+- 胶囊宽高允许 0，触控入口最小为 38 × 38 dp。倍率滑杆随开关立即启用或禁用，不重建设置页。
+- 展开后的输入区域随球体大小及形变更新，球体外不拦截下层内容。保持单层 GL 渲染和固定动画画布。
+- 球体暗部强度范围扩展至 0..4，默认值为 2，0 为透明，增强后暗部可达到不透明纯黑；左上滑和右上滑均可收起，并按方向和速度产生不同回弹形变。
+- 使用提供的前景、背景资源作为自适应图标，包含圆形与单色图标入口。
 
-首页依次为悬浮球、外观、交互、参数、关于。总开关仅在悬浮球正在显示时开启：无权限时进入授权，已隐藏时显示，其余状态启动；关闭时隐藏。启动、显示、隐藏和停止操作均可在「运行与权限」详情页使用，停止需确认。
+## 安装与权限
 
-七个参数分组使用独立 `ScrollView` 页面，保留全部参数范围、单位、精度、位置预设和依赖显示。每条滑杆显示默认值标记，偏离默认值时显示「还原」；分组与全部恢复均需确认。触摸区域倍率调节期间仍显示悬浮层红框，触发使用显式参数 ID，不依赖界面文案。
+安装 dist/灵动玻璃球-2.0.9.apk；Android 10 / API 29 及以上、GLES 3.0。
+包名 com.cxcboss.glassorb 保持不变，versionName=2.0.9，versionCode=17。
 
-设置控件全部使用 Google 官方 Material 3 Android View 实现，不再使用旧式平台 `SeekBar` / `Switch` / `Toolbar`。分组内容使用 Material 3 系统色面，不叠加装饰性玻璃、渐变或阴影；滑块整条 48dp 区域可点击和连续拖动，偏离默认值会出现单项「还原」。未引入 Apple 字体或 SF Symbols；AndroidLiquidGlass 仅保留来源说明，不参与设置页运行时依赖。
+在“运行与权限”中允许悬浮权限；如果需要状态栏区域触控，再主动开启“灵动玻璃球状态栏触控”无障碍服务。服务仅承载可信触控窗口，不读取屏幕内容、获取输入文字或模拟手势。国产 ROM 如有电池优化或自启动管理，请将本应用设为允许。旧配置保留，新选项缺失时使用默认值。
 
-玻璃球模型、数据、悬浮窗和运动参数保持兼容；暗场只保留连续的高斯渐隐，不再绘制球体上半部分的固定纯黑区域，也不再作为可调参数。透明 TextureView 输出按预乘 Alpha 合成，避免不同设备上出现发白、发灰或错误透明度。覆盖安装时，旧 JSON 中的 `blackLevel` 会被安全忽略。版本为 versionCode 7 / versionName 1.5.1-demo。
+触控区域使用 WindowManager 输入区域接口；该接口没有公开等价 API，设备不支持时会明确报错并撤下窗口。系统安全界面和不同厂商的悬浮策略仍需以目标设备表现为准。
 
-## 安装与使用
+## 构建与交付
 
-1. 安装 `dist/灵动玻璃球-demo.apk`，要求 Android 10 / API 29 及以上、GLES 3.0。
-2. 打开 App 并开启「显示悬浮球」；首次进入系统授权页，允许「显示在其他应用上层」后返回，再开启开关。
-3. Android 13 及以上建议允许通知，以便使用显示、隐藏、停止动作。
-4. 如需点击状态栏内的胶囊，在「运行与权限 → 状态栏区域点击」开启可选无障碍服务，并在系统页面确认授权。
-5. 回到桌面或普通 App：点击胶囊展开；单击小球短暂切换思考圆点；上滑小球收回胶囊。
-
-上滑超过 64dp 或速度超过 800dp/s 收起，否则弹回。窗口以外区域可操作下层应用；球体周围的小型透明余量仍属于触摸窗口。位置只能通过设置修改。
-
-## 调参
-
-通过系统悬浮球观察修改效果，App 内不再提供实时预览。
-
-| 分组 | 可调整内容 |
-| --- | --- |
-| 胶囊与位置 | 胶囊宽高、球径、余量、画布比例、顶部/水平偏移、左/中/右位置、触控扩展与倍率 |
-| 背景 | 展开玻璃球时，从真实屏幕顶部向下渐变的 20% 黑色压暗层 |
-| 玻璃 | 内部深度、曲率、高光、阴影、焦散及柔度 |
-| 暗场 | 强度、渐隐跨度、高斯斜率 |
-| 波形 | 振幅、尺度、色散、线宽、亮度、填光及厚度、柔化、Bloom、色相 |
-| 思考圆点 | 环半径、点半径、辉光、转速 |
-| 动画 | 手势阻力、微形变、展开/收起弹簧、呼吸、按压、思考时间、自动收起与倒计时 |
-| 性能 | 胶囊/展开帧率、渲染比例 |
-
-提供「参考原版 / 柔和 / 明亮」预设，应用前确认替换全部参数。「导入与导出」是全屏表单：复制 JSON 备份，再粘贴并导入；成功/复制采用 App 内提示，错误显示在表单中。schemaVersion=1，缺失字段用默认值，未知字段忽略，越界值夹紧；损坏 JSON 不覆盖现有配置。参数通过 DataStore 本地保存。
-
-## 效果边界
-
-- 胶囊稳定状态为纯黑色；玻璃球使用参考的光谱波形、双点、超椭圆 SDF、解析弹簧、薄白高光和连续高斯暗场，上下过渡平滑且下部保持透明。
-- 不读取屏幕、不录屏，折射仅作用于内部生成场景；下层内容透过透明区域原样显示。外部光影以 Android 预乘 Alpha 近似合成，不保证逐像素一致。
-- 锁屏、安全页面、输入法等系统关键窗口不保证覆盖；部分 App 会阻止悬浮窗。未开启无障碍增强时，物理顶边被系统状态栏挡住的触摸高度会补到下方；开启后由无障碍触摸代理覆盖配置区域。
-- 默认不启用无障碍服务；用户主动开启后，该服务只创建胶囊触摸代理，不读取窗口内容、不执行手势、不获取输入文字。应用仍不联网、不使用麦克风或录屏，也不请求存储权限。
-- debug 签名非商业测试包，不是商店发布包。后台省电策略因厂商不同；服务被回收时，在前台设置页重新开启。
-
-## 本地构建
-
-AGP 9.4.0、Gradle 9.6.0、AGP 内置 Kotlin。compileSdk 37 / targetSdk 36（Android 16）/ minSdk 29（Android 10）；Java 17 字节码，当前主机使用 JDK 21。设置控件来自 `com.google.android.material:material:1.14.0`，并使用 Android 16 的 edge-to-edge 窗口行为。
-
-在 `local.properties` 设置 `sdk.dir` 后执行：
+本次按要求只编译打包，未运行单元测试、界面测试、模拟器或真机测试。
 
 ```sh
-./gradlew testDebugUnitTest lintDebug assembleDebug --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
-./gradlew compileDebugAndroidTestKotlin --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
+./gradlew assembleDebug --offline --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
 ```
 
-本版按要求未运行模拟器或实体机测试。导航、总开关、坐标映射与默认值逻辑有 JVM 测试；Android 界面测试更新并编译，尚未 connected 运行。120Hz 跟随 Android Choreographer，未添加 60fps 限制；实际刷新率与手势观感需目标设备验证。
-
-生成物位于 Java 临时目录的 `glass-orb-android-build/app`，以避免 Desktop 同步目录的冲突副本。APK 为其 `outputs/apk/debug/app-debug.apk`，交付副本与 SHA-256 位于 `dist/`。
-
-架构：`OrbConfig` → DataStore `OrbConfigRepository` → `RenderSnapshot` → `OrbTextureView` / GL；`OverlayWindowController` 管理窗口与手势，`OrbOverlayService` 管理服务。新设置导航与纯逻辑位于 `ui/SettingsUiLogic.kt`。
+构建目录重定向至 Java 临时目录下的 glass-orb-android-build/app。交付包使用现有 debug 签名，可供本机覆盖安装，不是商店发布签名包。交互、动画及厂商兼容性由用户在设备上确认。
 
 ## 参考与许可
 
