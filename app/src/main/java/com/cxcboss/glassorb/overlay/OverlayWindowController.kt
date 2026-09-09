@@ -296,8 +296,10 @@ class OverlayWindowController(
         collapseReboundSpring.step(deltaSeconds)
         collapseSecondaryReboundSpring.step(deltaSeconds)
         if (!trackingSwipe) gestureOffsetDp = gestureReturnSpring.value
-        val collapseEffectsFrozen = stateMachine.state == OverlayState.Collapsing &&
-            morphSpring.value <= COLLAPSE_EFFECT_FREEZE_MORPH
+        // The expensive wave/dots and off-screen glass scene are no longer
+        // useful once a close transition starts. Freeze them for the whole
+        // collapse and keep only the lightweight shape spring at vsync.
+        val collapseEffectsFrozen = stateMachine.state == OverlayState.Collapsing
         if (!collapseEffectsFrozen && stateMachine.state != OverlayState.Collapsed) {
             bands = AmbientBands.smooth(bands, AmbientBands.targetsAt(elapsedSeconds))
             wavePhase = AmbientBands.advanceWavePhase(wavePhase, bands, deltaSeconds)
@@ -710,10 +712,14 @@ class OverlayWindowController(
 
     private fun updateShapeInputRegion(snapshot: RenderSnapshot) {
         val canvas = params ?: return
+        if (snapshot.state == OverlayState.Collapsing && snapshot.collapseEffectsFrozen) {
+            // The user cannot meaningfully interact with the orb while it is
+            // closing. Keep the last region and avoid rebuilding a Path/Region
+            // on every frame; the settled capsule frame updates it below.
+            return
+        }
         val region = Region()
-        if (snapshot.state == OverlayState.Collapsed ||
-            (snapshot.state == OverlayState.Collapsing && snapshot.collapseEffectsFrozen)
-        ) {
+        if (snapshot.state == OverlayState.Collapsed) {
             val bounds = OverlayLayout.capsuleTouchBounds(config.geometry, safeBounds(), density)
             region.set(bounds.left - canvas.x, bounds.top - canvas.y,
                 bounds.right - canvas.x, bounds.bottom - canvas.y)
@@ -967,10 +973,6 @@ class OverlayWindowController(
     }
 
     private companion object {
-        // Freeze the expensive wave/dots passes after the orb has mostly
-        // collapsed. The shape pass continues at display cadence for a smooth
-        // final morph and rebound.
-        const val COLLAPSE_EFFECT_FREEZE_MORPH = 0.36f
         const val PERMISSION_CHECK_INTERVAL_MS = 15_000L
     }
 }

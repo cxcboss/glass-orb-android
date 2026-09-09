@@ -83,10 +83,9 @@ internal class GlOrbPipeline(
         GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glBindVertexArray(vertexArray[0])
 
-        // The two off-screen passes are the expensive animated part. During
-        // the last part of a collapse the orb is already visually fading out,
-        // so keep their last image and render only the lightweight shape pass.
-        // A resize invalidates scenePopulated and forces one fresh pass.
+        // The two off-screen passes are the expensive animated part. During a
+        // collapse keep their last image and render only the lightweight shape
+        // pass. A resize invalidates scenePopulated and forces one fresh pass.
         val renderAmbientScene = snapshot.state != OverlayState.Collapsed &&
             (!snapshot.collapseEffectsFrozen || !scenePopulated)
         if (renderAmbientScene) {
