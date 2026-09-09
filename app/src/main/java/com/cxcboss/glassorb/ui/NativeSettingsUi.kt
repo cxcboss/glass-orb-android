@@ -563,14 +563,14 @@ internal class NativeSettingsController(
         addSlider(content, "拖拽响应系数", config.motion.dragResistance, OrbConfig.reference().motion.dragResistance, 0.05f..2f, decimals = 2) { value ->
             updateConfig { current -> current.copy(motion = current.motion.copy(dragResistance = value)) }
         }
-        addSubheading(content, "按压形变")
+        addSubheading(content, "形变与回弹")
         addSlider(content, "形变位移上限", config.motion.deformLimitDp, OrbConfig.reference().motion.deformLimitDp, 0f..8f, "dp") { value ->
             updateConfig { current -> current.copy(motion = current.motion.copy(deformLimitDp = value)) }
         }
         addSlider(content, "形变幅度", config.motion.deformScaleDelta, OrbConfig.reference().motion.deformScaleDelta, 0f..0.02f, decimals = 3) { value ->
             updateConfig { current -> current.copy(motion = current.motion.copy(deformScaleDelta = value)) }
         }
-        addSlider(content, "形变回弹响应", config.motion.deformResponse, OrbConfig.reference().motion.deformResponse, 0.08f..1.5f, "s", 2) { value ->
+        addSlider(content, "形变回弹反应", config.motion.deformResponse, OrbConfig.reference().motion.deformResponse, 0.08f..1.5f, "s", 2) { value ->
             updateConfig { current -> current.copy(motion = current.motion.copy(deformResponse = value)) }
         }
         addSlider(content, "形变回弹阻尼", config.motion.deformDamping, OrbConfig.reference().motion.deformDamping, 0.1f..1.5f, decimals = 2) { value ->

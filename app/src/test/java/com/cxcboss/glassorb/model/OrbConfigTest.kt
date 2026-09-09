@@ -22,7 +22,7 @@ class OrbConfigTest {
         assertEquals(0.62f, config.motion.dragResistance, 0f)
         assertEquals(8f, config.motion.deformLimitDp, 0f)
         assertEquals(0.016f, config.motion.deformScaleDelta, 0f)
-        assertEquals(0.24f, config.motion.deformResponse, 0f)
+        assertEquals(0.8f, config.motion.deformResponse, 0f)
         assertEquals(0.68f, config.motion.deformDamping, 0f)
         assertEquals(0.34f, config.motion.closeResponse, 0f)
         assertEquals(0.78f, config.motion.closeDamping, 0f)
@@ -63,7 +63,7 @@ class OrbConfigTest {
         assertEquals(0.62f, config.motion.dragResistance, 0f)
         assertEquals(8f, config.motion.deformLimitDp, 0f)
         assertEquals(0f, config.motion.deformScaleDelta, 0f)
-        assertEquals(0.24f, config.motion.deformResponse, 0f)
+        assertEquals(0.8f, config.motion.deformResponse, 0f)
         assertEquals(0.1f, config.motion.deformDamping, 0f)
     }
 

@@ -73,7 +73,7 @@ data class MotionConfig(
     val dragResistance: Float = 0.62f,
     val deformLimitDp: Float = 8f,
     val deformScaleDelta: Float = 0.016f,
-    val deformResponse: Float = 0.24f,
+    val deformResponse: Float = 0.8f,
     val deformDamping: Float = 0.68f,
     val waveFadeDelayMs: Int = 80,
     val breathingAmplitude: Float = 0.028f,

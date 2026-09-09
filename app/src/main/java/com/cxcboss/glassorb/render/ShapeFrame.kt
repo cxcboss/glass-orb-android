@@ -2,7 +2,6 @@ package com.cxcboss.glassorb.render
 
 import com.cxcboss.glassorb.overlay.OverlayLayout
 import com.cxcboss.glassorb.overlay.OverlayState
-import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.math.tanh
 
@@ -39,12 +38,24 @@ internal data class ShapeFrame(
             val directionalReboundPx = snapshot.collapseDirection.coerceIn(-1, 1) *
                 (if (config.geometry.expandBelowCapsule) 6f else 3f) * reboundSignal *
                 (1f + speedFactor * 0.7f)
-            val reboundWidthScale = 1f + abs(reboundSignal) *
-                if (config.geometry.expandBelowCapsule) 0.045f else 0.022f
-            val reboundHeightScale = 1f - abs(reboundSignal) *
-                if (config.geometry.expandBelowCapsule) 0.09f else 0.045f
             val density = displayDensity * OverlayLayout.renderScale(config.geometry, width, height, displayDensity, morph)
             val progress = morph.coerceIn(0f, 1f)
+            // Once the orb has mostly become a capsule, use the same spring
+            // signal for a soft squeeze: shorter horizontally, taller
+            // vertically, then naturally back to 1x as the spring settles.
+            // Squaring keeps the pulse non-negative while preserving a smooth
+            // zero crossing for the layered rebound oscillation.
+            val capsulePresence = if (snapshot.state == OverlayState.Collapsing) {
+                smoothstep(0.25f, 0.92f, 1f - progress)
+            } else {
+                0f
+            }
+            val springPulse = (reboundSignal * reboundSignal).coerceIn(0f, 1f)
+            val capsuleDeformation = capsulePresence * springPulse
+            val reboundWidthScale = 1f - capsuleDeformation *
+                if (config.geometry.expandBelowCapsule) 0.12f else 0.085f
+            val reboundHeightScale = 1f + capsuleDeformation *
+                if (config.geometry.expandBelowCapsule) 0.20f else 0.14f
             val expanded = snapshot.state != OverlayState.Collapsed && snapshot.state != OverlayState.Hidden
             val breathing = if (expanded) 1f + config.motion.breathingAmplitude *
                 sin(snapshot.timeSeconds * config.motion.breathingSpeed) * progress else 1f
@@ -69,6 +80,12 @@ internal data class ShapeFrame(
                 .let { frame ->
                     frame.copy(shapeWidth = frame.shapeWidth * reboundWidthScale)
                 }
+        }
+
+        private fun smoothstep(edge0: Float, edge1: Float, value: Float): Float {
+            val span = (edge1 - edge0).coerceAtLeast(0.0001f)
+            val t = ((value - edge0) / span).coerceIn(0f, 1f)
+            return t * t * (3f - 2f * t)
         }
     }
 }

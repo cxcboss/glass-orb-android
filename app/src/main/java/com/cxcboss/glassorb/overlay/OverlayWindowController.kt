@@ -579,12 +579,15 @@ class OverlayWindowController(
         val speedFactor = (collapseReleaseVelocityDpPerSecond / 1_400f).coerceIn(0f, 1f)
         val impulse = 0.65f + speedFactor * 0.95f
         val directionalBoost = if (collapseDirection == 0) 1f else 1.08f
+        val response = config.motion.deformResponse.coerceIn(0.08f, 1.5f)
+        val primaryResponse = response * if (config.geometry.expandBelowCapsule) 0.625f else 0.7f
+        val secondaryResponse = response * if (config.geometry.expandBelowCapsule) 0.35f else 0.4f
         collapseReboundSpring.configure(
-            if (config.geometry.expandBelowCapsule) 0.5f else 0.56f,
+            primaryResponse.coerceIn(0.18f, 1.2f),
             if (config.geometry.expandBelowCapsule) 0.7f else 0.76f,
         )
         collapseSecondaryReboundSpring.configure(
-            if (config.geometry.expandBelowCapsule) 0.28f else 0.32f,
+            secondaryResponse.coerceIn(0.12f, 0.9f),
             if (config.geometry.expandBelowCapsule) 0.78f else 0.82f,
         )
         collapseReboundSpring.seed(0f, impulse * directionalBoost, 0f)
