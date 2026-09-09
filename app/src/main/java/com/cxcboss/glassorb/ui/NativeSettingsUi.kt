@@ -349,7 +349,7 @@ internal class NativeSettingsController(
                 "无障碍触控服务",
                 if (accessibilityEnabled) "已开启 · 用于状态栏区域触控" else "未开启 · 点击前往系统授权",
             ) { callbacks.requestAccessibilityPermission() }
-            addNote(this, "仅用于创建可信触控窗口；不读取屏幕、不截图、不执行手势、不监听按键。国产 ROM 如有电池优化或自启动管理，请将本应用设为允许。")
+            addNote(this, "用于创建可信触控窗口并监听已知系统语音助手的窗口出现与消失；不读取文字、不截图、不录音、不执行手势、不监听按键。国产 ROM 如有电池优化或自启动管理，请将本应用设为允许。")
         }
         section(content, "操作") {
             addNavigationRow(this, if (overlayPermission) "启动悬浮层" else "授权并返回") {
