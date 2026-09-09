@@ -35,6 +35,7 @@ data class RenderSnapshot(
     val capsuleTopOffsetDp: Float = 0f,
     val pressProgress: Float = 0f,
     val thinkingProgress: Float = 0f,
+    val completionProgress: Float = 0f,
     val timeSeconds: Float = 0f,
     val wavePhase: Float = 0f,
     val stateElapsedSeconds: Float = 0f,

@@ -30,4 +30,15 @@ class AmbientBandsTest {
 
         assertEquals(FrequencyBands(0.22f, 0.11f, 0.055f), smoothed)
     }
+
+    @Test
+    fun `voice level expands bands monotonically`() {
+        val quiet = AmbientBands.targetsForVoiceLevel(0f)
+        val loud = AmbientBands.targetsForVoiceLevel(1f)
+
+        assert(loud.low > quiet.low)
+        assert(loud.mid > quiet.mid)
+        assert(loud.high > quiet.high)
+        assert(loud.mid <= 1f)
+    }
 }

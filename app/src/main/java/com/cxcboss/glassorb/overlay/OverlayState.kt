@@ -5,6 +5,7 @@ sealed interface OverlayState {
     data object Expanding : OverlayState
     data object Wave : OverlayState
     data object Thinking : OverlayState
+    data object Completed : OverlayState
     data class SwipeTracking(val offsetYDp: Float) : OverlayState
     data object Collapsing : OverlayState
     data object Hidden : OverlayState
@@ -27,6 +28,14 @@ class OverlayStateMachine(initialState: OverlayState = OverlayState.Collapsed) {
 
     fun onThinkingTimeout() {
         if (state == OverlayState.Thinking) state = OverlayState.Wave
+    }
+
+    fun beginAnalysis() {
+        if (state == OverlayState.Wave) state = OverlayState.Thinking
+    }
+
+    fun showCompleted() {
+        if (state == OverlayState.Thinking) state = OverlayState.Completed
     }
 
     fun onAnimationSettled() {
@@ -64,6 +73,8 @@ class OverlayStateMachine(initialState: OverlayState = OverlayState.Collapsed) {
     }
 
     fun beginAutomaticCollapse() {
-        if (state == OverlayState.Wave || state == OverlayState.Thinking) state = OverlayState.Collapsing
+        if (state == OverlayState.Wave || state == OverlayState.Thinking || state == OverlayState.Completed) {
+            state = OverlayState.Collapsing
+        }
     }
 }

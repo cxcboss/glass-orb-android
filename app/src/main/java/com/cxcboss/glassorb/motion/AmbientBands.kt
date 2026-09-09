@@ -25,6 +25,16 @@ object AmbientBands {
         high = 0.30f + 0.25f * sin(6.3f * timeSeconds + 2f),
     )
 
+    /** Maps microphone loudness to stable low/mid/high bands for the orb UI. */
+    fun targetsForVoiceLevel(level: Float): FrequencyBands {
+        val loudness = level.coerceIn(0f, 1f)
+        return FrequencyBands(
+            low = (0.16f + loudness * 0.84f).coerceIn(0f, 1f),
+            mid = (0.10f + loudness * 0.98f).coerceIn(0f, 1f),
+            high = (0.08f + loudness * 0.72f).coerceIn(0f, 1f),
+        )
+    }
+
     fun smooth(current: FrequencyBands, target: FrequencyBands): FrequencyBands = FrequencyBands(
         low = current.low + (target.low - current.low) * SMOOTHING,
         mid = current.mid + (target.mid - current.mid) * SMOOTHING,

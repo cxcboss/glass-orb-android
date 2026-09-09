@@ -63,6 +63,7 @@ const float uDotsScale = 1.0;
 const float uAppear = 1.0;
 uniform float uDotsOpacity;
 uniform float uHueShift;
+uniform float uCompletionOpacity;
 out vec4 outColor;
 
 
@@ -332,10 +333,32 @@ vec4 renderDots() {
 	return vec4(col, alpha);
 }
 
+float segmentDistance(vec2 p, vec2 a, vec2 b) {
+    vec2 ab = b - a;
+    float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 0.0001), 0.0, 1.0);
+    return distance(p, a + ab * t);
+}
+
+vec4 renderCompletion() {
+    vec2 gid = vec2(gl_FragCoord.x, uResolution.y - gl_FragCoord.y);
+    float halfMn = min(uResolution.x, uResolution.y) * 0.5;
+    vec2 p = (gid + 0.5 - 0.5 * uResolution) / max(halfMn, 1.0);
+    vec2 a = vec2(-0.28, -0.01);
+    vec2 b = vec2(-0.08, -0.20);
+    vec2 c = vec2(0.31, 0.22);
+    float d = min(segmentDistance(p, a, b), segmentDistance(p, b, c));
+    float stroke = 1.0 - smoothstep(0.018, 0.060, d);
+    float glow = 1.0 - smoothstep(0.035, 0.16, d);
+    float pulse = 0.92 + 0.08 * sin(uTime * 3.2);
+    return vec4(vec3(stroke * pulse + glow * 0.16), max(stroke, glow * 0.18));
+}
+
 void main() {
-    vec4 wave = uLayerOpacity > 0.0001 ? renderWave() : vec4(0.0);
-    vec4 dots = uDotsOpacity > 0.0001 ? renderDots() * uDotsOpacity : vec4(0.0);
-    vec4 effect = wave + dots;
+    float completion = clamp(uCompletionOpacity, 0.0, 1.0);
+    vec4 wave = uLayerOpacity > 0.0001 ? renderWave() * (1.0 - completion) : vec4(0.0);
+    vec4 dots = uDotsOpacity > 0.0001 ? renderDots() * uDotsOpacity * (1.0 - completion) : vec4(0.0);
+    vec4 done = completion > 0.0001 ? renderCompletion() * completion : vec4(0.0);
+    vec4 effect = wave + dots + done;
     // Optional setting; zero leaves the reference spectrum untouched.
     vec3 axis = normalize(vec3(1.0));
     float angle = radians(uHueShift);

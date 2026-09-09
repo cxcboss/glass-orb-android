@@ -14,12 +14,14 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.cxcboss.glassorb.R
 import com.cxcboss.glassorb.data.OrbConfigRepository
 import com.cxcboss.glassorb.ui.MainActivity
+import com.cxcboss.glassorb.voice.VoicePermission
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,7 +50,13 @@ class OrbOverlayService : Service() {
         super.onCreate()
         notificationManager = getSystemService(NotificationManager::class.java)
         createNotificationChannel()
-        controller = OverlayWindowController(this, ::handleFatalError)
+        controller = OverlayWindowController(
+            context = this,
+            onFatalError = ::handleFatalError,
+            onPermissionRequired = ::requestVoicePermission,
+            onRecordingStateChanged = ::onVoiceRecordingStateChanged,
+            onVoiceMessage = ::showVoiceMessage,
+        )
         AccessibilityOverlayBridge.attachController(
             handler = controller::dispatchAccessibilityTouch,
             provider = controller::currentAccessibilityTouchBounds,
@@ -129,6 +137,36 @@ class OrbOverlayService : Service() {
             buildNotification(),
             foregroundType,
         )
+    }
+
+    private fun onVoiceRecordingStateChanged(recording: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+        val type = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+            if (recording) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+        runCatching {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), type)
+        }.onFailure {
+            // Recording itself remains guarded by RECORD_AUDIO. Keep the
+            // service notification alive if an OEM rejects a type update.
+            refreshNotification()
+        }
+    }
+
+    private fun requestVoicePermission(permission: VoicePermission) {
+        val action = when (permission) {
+            VoicePermission.RecordAudio -> MainActivity.ACTION_REQUEST_RECORD_AUDIO
+            VoicePermission.Camera -> MainActivity.ACTION_REQUEST_CAMERA
+        }
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .setAction(action)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
+    }
+
+    private fun showVoiceMessage(message: String) {
+        if (message.isBlank()) return
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun refreshNotification() {
