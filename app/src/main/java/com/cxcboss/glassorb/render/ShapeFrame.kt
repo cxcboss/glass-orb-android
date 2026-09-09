@@ -9,6 +9,7 @@ import kotlin.math.tanh
 internal data class ShapeFrame(
     val morph: Float, val density: Float, val visualScale: Float,
     val shapeWidth: Float, val shapeHeight: Float, val top: Float, val centerX: Float,
+    val glassContentOpacity: Float = 1f,
 ) {
     val centerY get() = top + shapeHeight * 0.5f
 
@@ -42,6 +43,11 @@ internal data class ShapeFrame(
             val staged = stagedMotion(snapshot, progress, displayDensity)
             val visualMorph = staged?.morph ?: morph
             val stageScale = staged?.scale ?: 1f
+            val glassContentOpacity = GlassCollapseTransition.contentOpacity(
+                state = snapshot.state,
+                rawMorph = morph,
+                visualMorph = visualMorph,
+            )
             val density = displayDensity * OverlayLayout.renderScale(
                 config.geometry, width, height, displayDensity, visualMorph,
             )
@@ -83,7 +89,7 @@ internal data class ShapeFrame(
             if (staged == null) {
                 return ShapeFrame(visualMorph, density, scale, shape.widthDp * density * scale,
                     shape.heightDp * density * scale * reboundHeightScale,
-                    shape.topDp * density, shape.centerXDp * density)
+                    shape.topDp * density, shape.centerXDp * density, glassContentOpacity)
                     .let { frame ->
                         frame.copy(shapeWidth = frame.shapeWidth * reboundWidthScale)
                     }
@@ -101,6 +107,7 @@ internal data class ShapeFrame(
                 shapeHeight = stagedHeightDp * density,
                 top = (stagedCenterYDp - stagedHeightDp * 0.5f) * density,
                 centerX = shape.centerXDp * density,
+                glassContentOpacity = glassContentOpacity,
             )
         }
 

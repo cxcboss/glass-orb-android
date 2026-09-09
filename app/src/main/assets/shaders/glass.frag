@@ -32,6 +32,7 @@ uniform float uCausticOffsetY;
 uniform float uProjectionSoftness;
 
 uniform float uGlassVisibility;
+uniform float uGlassContentOpacity;
 uniform float uCollapsed;
 uniform float uCapsuleOutline;
 out vec4 outColor;
@@ -188,7 +189,7 @@ void main() {
     float shapeAlpha = 1.0 - smoothstep(-1.0, 1.0, d);
     // A collapsed Dynamic Island is ink black: no wave, tint or projection.
     // The optional rim is the short-lived dark-theme launch outline only.
-    if (uCollapsed > 0.5 || uGlassVisibility <= 0.0001) {
+    if (uCollapsed > 0.5) {
         // Full opacity throughout the interior; coverage antialiasing is
         // confined to the contour and matches the last animated frame.
         float capsuleAlpha = 1.0 - smoothstep(-1.0, 1.0, capsuleD);
@@ -223,7 +224,11 @@ void main() {
     // Writing straight RGB with a low alpha leaks bright/dull pixels from the
     // generated scene and is the source of the intermittent milky capsule and
     // glass appearance on different compositors.
-    vec4 composed = inside + projection;
-    float composedAlpha = saturate(composed.a);
+    // During a close, the live glass scene fades independently from the shape.
+    // The black shell fills the same interpolated mask, keeping the transition
+    // continuous without a branch-time flash.
+    vec4 composed = (inside + projection) * uGlassContentOpacity;
+    float shellAlpha = (1.0 - uGlassContentOpacity) * shapeAlpha;
+    float composedAlpha = saturate(composed.a + shellAlpha);
     outColor = vec4(clamp(composed.rgb, 0.0, 1.0) * composedAlpha, composedAlpha);
 }

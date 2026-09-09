@@ -63,6 +63,7 @@ internal data class NativeSettingsCallbacks(
     val resetAll: () -> Unit,
     val exportJson: () -> String,
     val importJson: (String, (Result<OrbConfig>) -> Unit) -> Unit,
+    val setAutoStartEnabled: (Boolean) -> Unit,
 )
 
 /**
@@ -101,6 +102,7 @@ internal class NativeSettingsController(
     private var runtimeStatus: OverlayRuntimeStatus = OverlayRuntimeStatus.Stopped
     private var overlayPermission: Boolean = false
     private var accessibilityEnabled: Boolean = false
+    private var autoStartEnabled: Boolean = false
     var onBackAvailabilityChanged: ((Boolean) -> Unit)? = null
     val canGoBack: Boolean get() = pages.size > 1
     private var predictiveBack = false
@@ -138,6 +140,12 @@ internal class NativeSettingsController(
         if (accessibilityEnabled == value) return
         accessibilityEnabled = value
         if (currentScreen() is Screen.Overlay) refreshCurrentPage()
+    }
+
+    fun updateAutoStartEnabled(value: Boolean) {
+        if (autoStartEnabled == value) return
+        autoStartEnabled = value
+        if (currentScreen() is Screen.Home) refreshCurrentPage()
     }
 
     fun navigate(screen: Any) {
@@ -297,6 +305,11 @@ internal class NativeSettingsController(
                     OverlayAction.None -> Unit
                 }
             }
+            addSwitchRow(this, "开机自启动", if (autoStartEnabled) "开机后自动恢复悬浮层" else "开机后保持关闭", autoStartEnabled) { enabled ->
+                autoStartEnabled = enabled
+                callbacks.setAutoStartEnabled(enabled)
+            }
+            addNote(this, "国产 ROM 可能还需要在系统设置中允许本应用自启动或后台运行。")
             addNavigationRow(this, "运行与权限", if (overlayPermission) "悬浮窗权限已开启" else "需要悬浮窗权限") { navigate("overlay") }
         }
         section(content, "外观与位置") {

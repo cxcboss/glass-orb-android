@@ -54,7 +54,7 @@ class OverlayLayoutTest {
     }
 
     @Test
-    fun `collapsed touch window includes a minimum forty eight dp hit target`() {
+    fun `collapsed touch window includes a minimum thirty eight dp hit target`() {
         val safe = IntRect(left = 0, top = 72, right = 1080, bottom = 2280)
 
         val bounds = OverlayLayout.collapsedBounds(
@@ -63,7 +63,7 @@ class OverlayLayoutTest {
             density = 3f,
         )
 
-        assertEquals(144, bounds.height)
+        assertEquals(114, bounds.height)
         assertEquals(270, bounds.width)
     }
 

@@ -27,6 +27,7 @@ import com.cxcboss.glassorb.overlay.OrbOverlayService
 import com.cxcboss.glassorb.overlay.AccessibilityStatus
 import com.cxcboss.glassorb.overlay.OverlayRuntime
 import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
+import com.cxcboss.glassorb.data.AutoStartPreferences
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -83,11 +84,13 @@ class MainActivity : ComponentActivity() {
                 resetAll = viewModel::resetAll,
                 exportJson = viewModel::exportJson,
                 importJson = viewModel::importJson,
+                setAutoStartEnabled = { enabled -> AutoStartPreferences.setEnabled(this, enabled) },
             ),
         )
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
         settingsController.updateAccessibilityEnabled(AccessibilityStatus.isGlassOrbServiceEnabled(this))
+        settingsController.updateAutoStartEnabled(AutoStartPreferences.isEnabled(this))
         // ComponentActivity bridges this standard dispatcher callback to the
         // platform predictive-back contract. Internal pages follow gesture
         // progress and cancellation; the root delegates back to the system.
@@ -120,6 +123,7 @@ class MainActivity : ComponentActivity() {
         updateOverlayPermission()
         if (::settingsController.isInitialized) {
             settingsController.updateAccessibilityEnabled(AccessibilityStatus.isGlassOrbServiceEnabled(this))
+            settingsController.updateAutoStartEnabled(AutoStartPreferences.isEnabled(this))
         }
         darkMode = isSystemDarkMode()
         updateSystemBars()

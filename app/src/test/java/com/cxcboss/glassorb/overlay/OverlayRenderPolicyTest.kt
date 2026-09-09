@@ -26,4 +26,10 @@ class OverlayRenderPolicyTest {
         assertTrue(shouldForceRenderAfterStateChange(OverlayState.Collapsing, OverlayState.Collapsed))
         assertFalse(shouldForceRenderAfterStateChange(OverlayState.Wave, OverlayState.Wave))
     }
+
+    @Test fun collapseEffectsFreezeAtTheContentFadeMidpoint() {
+        assertFalse(shouldFreezeCollapseEffects(OverlayState.SwipeTracking(0f), 0.3f))
+        assertTrue(shouldFreezeCollapseEffects(OverlayState.SwipeTracking(0f), 0.46f))
+        assertTrue(shouldFreezeCollapseEffects(OverlayState.Collapsing, 0f))
+    }
 }

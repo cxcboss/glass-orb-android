@@ -297,9 +297,13 @@ class OverlayWindowController(
         collapseSecondaryReboundSpring.step(deltaSeconds)
         if (!trackingSwipe) gestureOffsetDp = gestureReturnSpring.value
         // The expensive wave/dots and off-screen glass scene are no longer
-        // useful once a close transition starts. Freeze them for the whole
-        // collapse and keep only the lightweight shape spring at vsync.
-        val collapseEffectsFrozen = stateMachine.state == OverlayState.Collapsing
+        // useful once the finger reaches the fade midpoint. Freeze them while
+        // the shape continues following the finger, then keep only the
+        // lightweight shell transition at vsync.
+        val collapseEffectsFrozen = shouldFreezeCollapseEffects(
+            state = stateMachine.state,
+            collapsePull = windowMotion.collapsePull,
+        )
         if (!collapseEffectsFrozen && stateMachine.state != OverlayState.Collapsed) {
             bands = AmbientBands.smooth(bands, AmbientBands.targetsAt(elapsedSeconds))
             wavePhase = AmbientBands.advanceWavePhase(wavePhase, bands, deltaSeconds)

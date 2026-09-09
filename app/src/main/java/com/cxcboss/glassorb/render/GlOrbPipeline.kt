@@ -150,6 +150,7 @@ internal class GlOrbPipeline(
         glassProgram.float("uMarginPx", 0f)
         glassProgram.float("uCornerRadius", minOf(shapeWidth, shapeHeight) * 0.5f)
         glassProgram.float("uGlassVisibility", orbVisibility)
+        glassProgram.float("uGlassContentOpacity", frame.glassContentOpacity)
         glassProgram.float("uCollapsed", if (snapshot.state == OverlayState.Collapsed) 1f else 0f)
         glassProgram.float("uCapsuleOutline", if (snapshot.capsuleOutline) 1f else 0f)
         glassProgram.float("uHeight", config.glass.internalDepth * density)

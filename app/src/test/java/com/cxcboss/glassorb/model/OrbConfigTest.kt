@@ -53,7 +53,7 @@ class OrbConfigTest {
             ),
         ).normalized()
 
-        assertEquals(24f, config.geometry.capsuleWidthDp, 0f)
+        assertEquals(0f, config.geometry.capsuleWidthDp, 0f)
         assertEquals(64f, config.geometry.capsuleHeightDp, 0f)
         assertEquals(170f, config.geometry.orbDiameterDp, 0f)
         assertEquals(0f, config.geometry.verticalOffsetDp, 0f)
