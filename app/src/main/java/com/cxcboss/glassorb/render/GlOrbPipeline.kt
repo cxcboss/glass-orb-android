@@ -72,7 +72,6 @@ internal class GlOrbPipeline(
         val centerY = frame.centerY
         val effectSize = config.geometry.orbDiameterDp * config.geometry.effectScale * density * visualScale
         val weights = RenderTransition.weights(snapshot.thinkingProgress)
-        val completion = snapshot.completionProgress.coerceIn(0f, 1f)
         val orbVisibility = smoothstep(0.08f, 0.72f, morph)
         val waveDelay = config.motion.waveFadeDelayMs / 1_000f
         val entrance = if (snapshot.state is OverlayState.Expanding) {
@@ -98,9 +97,8 @@ internal class GlOrbPipeline(
             effectProgram.vec2("uResolution", effect.width.toFloat(), effect.height.toFloat())
             effectProgram.float("uTime", snapshot.timeSeconds)
             effectProgram.float("uWavePhase", snapshot.wavePhase)
-            effectProgram.float("uLayerOpacity", weights.wave * entrance * orbVisibility * (1f - completion))
-            effectProgram.float("uDotsOpacity", weights.dots * orbVisibility * (1f - completion))
-            effectProgram.float("uCompletionOpacity", completion)
+            effectProgram.float("uLayerOpacity", weights.wave * entrance * orbVisibility)
+            effectProgram.float("uDotsOpacity", weights.dots * orbVisibility)
             effectProgram.float("uAmplitude", config.wave.amplitude)
             effectProgram.float("uWaveScale", config.wave.scale)
             effectProgram.float("uAberration", config.wave.chromaticAberration)

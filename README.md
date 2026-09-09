@@ -2,11 +2,7 @@
 
 原生 Android 设置界面与 OpenGL ES 3.0 悬浮玻璃球。
 
-## 2.1.0 · 构建 20
-
-- 新增点击展开即录音的本地语音指令：说话时麦克风响度驱动球体波纹，短暂静音后自动分析，也可再次点击立即分析。
-- 分析阶段复用玻璃球的转动圆点，识别完成后显示勾选，再收起执行；当前仅允许打开/关闭手电筒、媒体音量调节和打开少量内置应用，模糊或未知指令不会执行。
-- 接入官方 sherpa-onnx 流式 Zipformer CTC 中文 int8 小模型，模型与识别均在本机完成；录音只在一次会话期间使用，不读取剪贴板、不扩展无障碍能力。
+## 2.0.11 · 构建 19
 
 - 设置首页重新分类；各级页面统一浅色、深色模块样式。关于与许可集中收纳，不在首页展示详情。
 - 二级返回接入 Android 预测性返回的开始、进度、取消和完成回调；首页保留系统返回行为。
@@ -21,10 +17,8 @@
 
 ## 安装与权限
 
-安装 dist/灵动玻璃球-2.1.0.apk；Android 10 / API 29 及以上、GLES 3.0。
-包名 com.cxcboss.glassorb 保持不变，versionName=2.1.0，versionCode=20。
-
-首次点击胶囊展开语音功能时需要授予录音权限；执行手电筒指令时才会按需请求相机权限。悬浮服务在录音期间声明麦克风前台服务类型，以减少国产 ROM 清理正在使用的录音会话的机会。
+安装 dist/灵动玻璃球-2.0.11.apk；Android 10 / API 29 及以上、GLES 3.0。
+包名 com.cxcboss.glassorb 保持不变，versionName=2.0.11，versionCode=19。
 
 在“运行与权限”中允许悬浮权限；如果需要状态栏区域触控，再主动开启“灵动玻璃球状态栏触控”无障碍服务。服务仅承载可信触控窗口，不读取屏幕内容、获取输入文字或模拟手势。国产 ROM 如有电池优化或自启动管理，请将本应用设为允许。旧配置保留，新选项缺失时使用默认值。
 
@@ -32,10 +26,10 @@
 
 ## 构建与交付
 
-本次完成单元测试、编译和 APK 静态校验，未进行真机手势与国产 ROM 实机测试。
+本次按要求只编译打包，未运行单元测试、界面测试、模拟器或真机测试。
 
 ```sh
-./gradlew testDebugUnitTest assembleDebug --offline --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
+./gradlew assembleDebug --offline --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
 ```
 
 构建目录重定向至 Java 临时目录下的 glass-orb-android-build/app。交付包使用现有 debug 签名，可供本机覆盖安装，不是商店发布签名包。交互、动画及厂商兼容性由用户在设备上确认。

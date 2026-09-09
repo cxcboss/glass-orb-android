@@ -1,9 +1,7 @@
 package com.cxcboss.glassorb.overlay
 
-import android.Manifest
 import android.app.ActivityManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.graphics.PixelFormat
 import android.graphics.Point
 import android.graphics.Color
@@ -32,23 +30,12 @@ import com.cxcboss.glassorb.render.OrbTextureView
 import com.cxcboss.glassorb.render.RenderSnapshot
 import com.cxcboss.glassorb.render.ShapeMetrics
 import com.cxcboss.glassorb.render.ShapeFrame
-import com.cxcboss.glassorb.voice.LocalVoiceSession
-import com.cxcboss.glassorb.voice.LocalVoiceSessionListener
-import com.cxcboss.glassorb.voice.VoiceActionExecutor
-import com.cxcboss.glassorb.voice.VoiceActionResult
-import com.cxcboss.glassorb.voice.VoiceCommand
-import com.cxcboss.glassorb.voice.VoiceIntentResolver
-import com.cxcboss.glassorb.voice.VoicePermission
-import androidx.core.content.ContextCompat
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class OverlayWindowController(
     private val context: Context,
     private val onFatalError: (String) -> Unit,
-    private val onPermissionRequired: (VoicePermission) -> Unit = {},
-    private val onRecordingStateChanged: (Boolean) -> Unit = {},
-    private val onVoiceMessage: (String) -> Unit = {},
 ) {
     private var windowManager = context.getSystemService(WindowManager::class.java)
     private var accessibilityWindow = false
@@ -60,7 +47,6 @@ class OverlayWindowController(
     private val collapseReboundSpring = AnalyticSpring(0f, 0.5f, 0.72f)
     private val collapseSecondaryReboundSpring = AnalyticSpring(0f, 0.28f, 0.8f)
     private val thinkingSpring = AnalyticSpring(0f, 0.34f, 0.82f)
-    private val completionSpring = AnalyticSpring(0f, 0.22f, 0.84f)
     private val pressSpring = AnalyticSpring(0f, 0.18f, 1f)
     private val gestureReturnSpring = AnalyticSpring(0f, 0.34f, 0.82f)
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -97,54 +83,11 @@ class OverlayWindowController(
     private var showDarkCapsuleOutline = false
     private var collapseReleaseVelocityDpPerSecond = 0f
     private var collapseDirection = 0
-    private var voiceLevel = 0f
-    private var pendingVoiceCommand: VoiceCommand? = null
-    private val voiceActionExecutor = VoiceActionExecutor(context)
-    private val voiceSession = LocalVoiceSession(context, object : LocalVoiceSessionListener {
-        override fun onRecordingStarted() {
-            onRecordingStateChanged(true)
-        }
-
-        override fun onAudioLevel(level: Float) {
-            voiceLevel = level.coerceIn(0f, 1f)
-            forceRender = true
-            postFrame()
-        }
-
-        override fun onAnalysisStarted() {
-            beginAnalysisVisuals()
-        }
-
-        override fun onResult(transcript: String) {
-            handleVoiceResult(transcript)
-        }
-
-        override fun onError(message: String) {
-            handleVoiceError(message)
-        }
-
-        override fun onRecordingStopped() {
-            voiceLevel = 0f
-            onRecordingStateChanged(false)
-            forceRender = true
-            postFrame()
-        }
-    })
     private val thinkingTimeout = Runnable {
-        if (stateMachine.state == OverlayState.Thinking) {
-            handleVoiceError("分析超时，请再试一次")
-        }
-    }
-
-    private val analysisTimeout = Runnable {
-        if (stateMachine.state == OverlayState.Thinking) {
-            voiceSession.cancel()
-            handleVoiceError("分析超时，请再试一次")
-        }
-    }
-
-    private val completionTimeout = Runnable {
-        if (stateMachine.state == OverlayState.Completed) beginAutomaticCollapse()
+        stateMachine.onThinkingTimeout()
+        thinkingSpring.target = 0f
+        markStateStart()
+        scheduleAutoCollapse()
     }
 
     private val autoCollapseTimeout = Runnable { beginAutomaticCollapse() }
@@ -181,13 +124,9 @@ class OverlayWindowController(
         }
 
         stateMachine.showCollapsed()
-        voiceSession.cancel()
-        voiceLevel = 0f
-        pendingVoiceCommand = null
         morphSpring.snapTo(0f)
         resetCollapseRebound()
         thinkingSpring.snapTo(0f)
-        completionSpring.snapTo(0f)
         pressSpring.snapTo(0f)
         gestureReturnSpring.snapTo(0f)
         gestureOffsetDp = 0f
@@ -258,8 +197,6 @@ class OverlayWindowController(
 
     fun hide() {
         mainHandler.removeCallbacks(thinkingTimeout)
-        mainHandler.removeCallbacks(analysisTimeout)
-        mainHandler.removeCallbacks(completionTimeout)
         mainHandler.removeCallbacks(autoCollapseTimeout)
         mainHandler.removeCallbacks(permissionCheck)
         stateMachine.hide()
@@ -268,7 +205,6 @@ class OverlayWindowController(
 
     fun destroy() {
         hide()
-        voiceSession.release()
     }
 
     /** Receives touch events from the trusted accessibility proxy when needed. */
@@ -312,7 +248,7 @@ class OverlayWindowController(
         updateBounds()
         updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
         updateBackgroundDim()
-        if (stateMachine.state == OverlayState.Wave && !voiceSession.isActive) scheduleAutoCollapse()
+        if (stateMachine.state == OverlayState.Wave) scheduleAutoCollapse()
         forceRender = true
         postFrame()
     }
@@ -354,7 +290,6 @@ class OverlayWindowController(
 
         morphSpring.step(deltaSeconds)
         thinkingSpring.step(deltaSeconds)
-        completionSpring.step(deltaSeconds)
         pressSpring.step(deltaSeconds)
         gestureReturnSpring.step(deltaSeconds)
         windowMotion.step(deltaSeconds)
@@ -370,16 +305,8 @@ class OverlayWindowController(
             collapsePull = windowMotion.collapsePull,
         )
         if (!collapseEffectsFrozen && stateMachine.state != OverlayState.Collapsed) {
-            val targetBands = when {
-                voiceSession.isActive && stateMachine.state != OverlayState.Thinking ->
-                    AmbientBands.targetsForVoiceLevel(voiceLevel)
-                stateMachine.state == OverlayState.Thinking || stateMachine.state == OverlayState.Completed -> bands
-                else -> AmbientBands.targetsAt(elapsedSeconds)
-            }
-            bands = AmbientBands.smooth(bands, targetBands)
-            if (stateMachine.state != OverlayState.Thinking && stateMachine.state != OverlayState.Completed) {
-                wavePhase = AmbientBands.advanceWavePhase(wavePhase, bands, deltaSeconds)
-            }
+            bands = AmbientBands.smooth(bands, AmbientBands.targetsAt(elapsedSeconds))
+            wavePhase = AmbientBands.advanceWavePhase(wavePhase, bands, deltaSeconds)
         }
 
         val stateBeforeAnimationSettle = stateMachine.state
@@ -419,10 +346,6 @@ class OverlayWindowController(
                 lastRenderSubmitNanos = 0L
                 markStateStart(frameTimeNanos)
                 updateTouchBounds(expanded = false)
-                pendingVoiceCommand?.let { command ->
-                    pendingVoiceCommand = null
-                    executeVoiceCommand(command)
-                }
             }
 
             else -> Unit
@@ -467,7 +390,6 @@ class OverlayWindowController(
                 capsuleTopOffsetDp = capsuleTopOffsetDp,
                 pressProgress = pressSpring.value,
                 thinkingProgress = thinkingSpring.value,
-                completionProgress = completionSpring.value,
                 timeSeconds = elapsedSeconds,
                 wavePhase = wavePhase,
                 bands = bands,
@@ -586,11 +508,7 @@ class OverlayWindowController(
                     gestureReturnSpring.seed(gestureOffsetDp, velocityDp, 0f)
                     if (decision == SwipeDecision.Collapse) {
                         mainHandler.removeCallbacks(thinkingTimeout)
-                        mainHandler.removeCallbacks(analysisTimeout)
-                        mainHandler.removeCallbacks(completionTimeout)
-                        voiceSession.cancel()
                         thinkingSpring.target = 0f
-                        completionSpring.target = 0f
                     } else {
                         collapseReleaseVelocityDpPerSecond = 0f
                         collapseDirection = 0
@@ -624,19 +542,10 @@ class OverlayWindowController(
     }
 
     private fun beginExpand() {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            onPermissionRequired(VoicePermission.RecordAudio)
-            onVoiceMessage("请先允许录音权限，再点击胶囊开始语音指令")
-            return
-        }
         collapseReleaseVelocityDpPerSecond = 0f
         collapseDirection = 0
         resetCollapseRebound()
         mainHandler.removeCallbacks(autoCollapseTimeout)
-        mainHandler.removeCallbacks(completionTimeout)
-        completionSpring.snapTo(0f)
         stateMachine.onTap()
         updateBackgroundDim()
         updateTouchBounds(expanded = true)
@@ -644,83 +553,16 @@ class OverlayWindowController(
         morphSpring.snapTo(0f)
         morphSpring.target = 1f
         markStateStart()
-        voiceSession.start()
     }
 
     private fun beginThinking() {
-        if (stateMachine.state != OverlayState.Wave) return
         mainHandler.removeCallbacks(autoCollapseTimeout)
-        voiceSession.stopAndAnalyze()
-        stateMachine.beginAnalysis()
+        stateMachine.onTap()
         thinkingSpring.configure(0.34f, 0.82f)
         thinkingSpring.target = 1f
         mainHandler.removeCallbacks(thinkingTimeout)
-        mainHandler.removeCallbacks(analysisTimeout)
-        mainHandler.postDelayed(analysisTimeout, ANALYSIS_TIMEOUT_MS)
+        mainHandler.postDelayed(thinkingTimeout, config.motion.thinkingDurationMs.toLong())
         markStateStart()
-    }
-
-    private fun beginAnalysisVisuals() {
-        if (stateMachine.state == OverlayState.Wave) {
-            stateMachine.beginAnalysis()
-            markStateStart()
-        }
-        if (stateMachine.state != OverlayState.Thinking) return
-        mainHandler.removeCallbacks(autoCollapseTimeout)
-        thinkingSpring.configure(0.34f, 0.82f)
-        thinkingSpring.target = 1f
-        mainHandler.removeCallbacks(analysisTimeout)
-        mainHandler.postDelayed(analysisTimeout, ANALYSIS_TIMEOUT_MS)
-        forceRender = true
-        postFrame()
-    }
-
-    private fun handleVoiceResult(transcript: String) {
-        if (stateMachine.state != OverlayState.Thinking) return
-        mainHandler.removeCallbacks(analysisTimeout)
-        val resolution = VoiceIntentResolver.resolve(transcript)
-        if (!resolution.isExecutable) {
-            handleVoiceError(resolution.explanation)
-            return
-        }
-        pendingVoiceCommand = resolution.command
-        thinkingSpring.target = 0f
-        completionSpring.snapTo(0f)
-        completionSpring.target = 1f
-        stateMachine.showCompleted()
-        markStateStart()
-        mainHandler.removeCallbacks(completionTimeout)
-        mainHandler.postDelayed(
-            completionTimeout,
-            config.motion.thinkingDurationMs.toLong().coerceIn(550L, 1_800L),
-        )
-        forceRender = true
-        postFrame()
-    }
-
-    private fun handleVoiceError(message: String) {
-        mainHandler.removeCallbacks(analysisTimeout)
-        pendingVoiceCommand = null
-        if (stateMachine.state == OverlayState.Thinking || stateMachine.state == OverlayState.Wave) {
-            stateMachine.onThinkingTimeout()
-            thinkingSpring.target = 0f
-            markStateStart()
-            onVoiceMessage(message)
-            scheduleAutoCollapse()
-            forceRender = true
-            postFrame()
-        }
-    }
-
-    private fun executeVoiceCommand(command: VoiceCommand) {
-        when (val result = voiceActionExecutor.execute(command)) {
-            is VoiceActionResult.Success -> onVoiceMessage(result.message)
-            is VoiceActionResult.Failure -> onVoiceMessage(result.message)
-            is VoiceActionResult.PermissionRequired -> {
-                onPermissionRequired(result.permission)
-                onVoiceMessage("请先允许所需权限，再重试此指令")
-            }
-        }
     }
 
     private fun cancelGesture() {
@@ -830,27 +672,20 @@ class OverlayWindowController(
 
     private fun scheduleAutoCollapse() {
         mainHandler.removeCallbacks(autoCollapseTimeout)
-        if (config.motion.autoCollapseEnabled && stateMachine.state == OverlayState.Wave && !voiceSession.isActive) {
+        if (config.motion.autoCollapseEnabled && stateMachine.state == OverlayState.Wave) {
             mainHandler.postDelayed(autoCollapseTimeout, (config.motion.autoCollapseSeconds * 1_000f).roundToInt().toLong())
         }
     }
 
     private fun beginAutomaticCollapse() {
-        if (stateMachine.state != OverlayState.Wave &&
-            stateMachine.state != OverlayState.Thinking &&
-            stateMachine.state != OverlayState.Completed
-        ) return
+        if (stateMachine.state != OverlayState.Wave && stateMachine.state != OverlayState.Thinking) return
         mainHandler.removeCallbacks(thinkingTimeout)
-        mainHandler.removeCallbacks(analysisTimeout)
-        mainHandler.removeCallbacks(completionTimeout)
-        voiceSession.cancel()
         stateMachine.beginAutomaticCollapse()
         collapseReleaseVelocityDpPerSecond = 0f
         collapseDirection = 0
         startCollapseRebound()
         updateBackgroundDim()
         thinkingSpring.target = 0f
-        completionSpring.target = 0f
         configureCollapseSpring()
         morphSpring.seed(morphSpring.value, 0f, 0f)
         markStateStart()
@@ -1143,6 +978,5 @@ class OverlayWindowController(
 
     private companion object {
         const val PERMISSION_CHECK_INTERVAL_MS = 15_000L
-        const val ANALYSIS_TIMEOUT_MS = 8_000L
     }
 }

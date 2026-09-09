@@ -14,13 +14,8 @@ android {
         // uses explicit edge-to-edge/insets handling in the settings activity.
         minSdk = 29
         targetSdk = 30
-        versionCode = 20
-        versionName = "2.1.0"
-        ndk {
-            // Ship the two phone ABIs; the downloaded sherpa-onnx AAR also
-            // contains desktop ABIs which needlessly inflate the APK.
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
-        }
+        versionCode = 19
+        versionName = "2.0.11"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -53,7 +48,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
     implementation("androidx.datastore:datastore-preferences:1.1.7")
-    implementation(files("libs/sherpa-onnx-1.13.7.aar"))
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")

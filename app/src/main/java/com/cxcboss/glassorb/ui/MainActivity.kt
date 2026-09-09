@@ -35,7 +35,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var settingsController: NativeSettingsController
     private var overlayPermission = false
     private var darkMode = false
-    private var pendingRuntimePermission: String? = null
 
     private val overlayPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -47,16 +46,6 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (!granted) Toast.makeText(this, "通知权限未开启，悬浮服务仍可运行", Toast.LENGTH_SHORT).show()
-    }
-
-    private val runtimePermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        val permission = pendingRuntimePermission
-        pendingRuntimePermission = null
-        if (!granted && permission == Manifest.permission.RECORD_AUDIO) {
-            Toast.makeText(this, "未允许录音权限，语音指令不会启动", Toast.LENGTH_SHORT).show()
-        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -100,7 +89,6 @@ class MainActivity : ComponentActivity() {
         )
         setContentView(root)
         ViewCompat.requestApplyInsets(root)
-        handlePermissionRequest(intent)
         settingsController.updateAccessibilityEnabled(AccessibilityStatus.isGlassOrbServiceEnabled(this))
         settingsController.updateAutoStartEnabled(AutoStartPreferences.isEnabled(this))
         // ComponentActivity bridges this standard dispatcher callback to the
@@ -144,12 +132,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handlePermissionRequest(intent)
-    }
-
     override fun onPause() {
         if (OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
             OrbOverlayService.setAppAppearance(this, active = false, dark = darkMode)
@@ -171,19 +153,6 @@ class MainActivity : ComponentActivity() {
         // expose a stable public per-service detail action, so do not rely on
         // hidden/vendor-only settings intents here.
         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-    }
-
-    private fun handlePermissionRequest(intent: Intent?) {
-        when (intent?.action) {
-            ACTION_REQUEST_RECORD_AUDIO -> requestRuntimePermission(Manifest.permission.RECORD_AUDIO)
-            ACTION_REQUEST_CAMERA -> requestRuntimePermission(Manifest.permission.CAMERA)
-        }
-    }
-
-    private fun requestRuntimePermission(permission: String) {
-        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) return
-        pendingRuntimePermission = permission
-        runtimePermissionLauncher.launch(permission)
     }
 
     private fun startOverlay() {
@@ -252,9 +221,4 @@ class MainActivity : ComponentActivity() {
     private fun isSystemDarkMode(): Boolean =
         resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
             android.content.res.Configuration.UI_MODE_NIGHT_YES
-
-    companion object {
-        const val ACTION_REQUEST_RECORD_AUDIO = "com.cxcboss.glassorb.action.REQUEST_RECORD_AUDIO"
-        const val ACTION_REQUEST_CAMERA = "com.cxcboss.glassorb.action.REQUEST_CAMERA"
-    }
 }
