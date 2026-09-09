@@ -18,10 +18,8 @@ import com.k2fsa.sherpa.onnx.OnlineZipformer2CtcModelConfig
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CancellationException
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
 
 interface LocalVoiceSessionListener {
@@ -53,7 +51,7 @@ class LocalVoiceSession(
     private val manualStop = AtomicBoolean(false)
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var modelFuture: Future<OnlineRecognizer>? = null
-    private val recognizerRef = AtomicReference<OnlineRecognizer?>(null)
+    @Volatile private var recognizerRef: OnlineRecognizer? = null
 
     val isActive: Boolean get() = active.get()
 
@@ -80,9 +78,6 @@ class LocalVoiceSession(
         cancel()
         captureExecutor.shutdownNow()
         modelExecutor.shutdownNow()
-        runCatching { captureExecutor.awaitTermination(2, TimeUnit.SECONDS) }
-        runCatching { modelExecutor.awaitTermination(2, TimeUnit.SECONDS) }
-        releaseRecognizer()
     }
 
     private fun capture() {
@@ -142,7 +137,7 @@ class LocalVoiceSession(
                     if (future?.isDone == true) {
                         try {
                             recognizer = future.get()
-                            recognizerRef.set(recognizer)
+                            recognizerRef = recognizer
                             stream = recognizer.createStream()
                             bufferedChunks.forEach { chunk -> feed(recognizer, stream, chunk) }
                             bufferedChunks.clear()
@@ -194,7 +189,8 @@ class LocalVoiceSession(
             runCatching { recorder?.release() }
             audioRecord = null
             runCatching { stream?.release() }
-            releaseRecognizer()
+            runCatching { recognizer?.release() }
+            recognizerRef = null
             active.set(false)
             post { listener.onRecordingStopped() }
         }
@@ -227,16 +223,13 @@ class LocalVoiceSession(
                 decodingMethod = "greedy_search",
             ),
         )
-        recognizerRef.set(recognizer)
+        recognizerRef = recognizer
         if (!active.get()) {
-            releaseRecognizer()
+            recognizer.release()
+            recognizerRef = null
             throw CancellationException("语音会话已取消")
         }
         return recognizer
-    }
-
-    private fun releaseRecognizer() {
-        runCatching { recognizerRef.getAndSet(null)?.release() }
     }
 
     private fun createRecorder(): AudioRecord {
