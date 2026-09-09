@@ -9,11 +9,13 @@ import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
 
 /**
  * Minimal trusted-window host for the optional status-bar touch target.
  * No accessibility content, screenshots, gestures, key events, or touch
- * exploration are requested. The XML event filter is limited to this app.
+ * exploration are requested. The XML event filter is limited to the known
+ * system assistant package and reports only its window lifecycle.
  */
 class GlassOrbAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -36,7 +38,34 @@ class GlassOrbAccessibilityService : AccessibilityService() {
             .onFailure { Log.e(TAG, "Unable to connect trusted touch proxy", it) }
     }
 
-    override fun onAccessibilityEvent(event: android.view.accessibility.AccessibilityEvent?) = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val accessibilityEvent = event ?: return
+        val packageName = accessibilityEvent.packageName?.toString() ?: return
+        if (!SystemAssistantPackages.isSupported(packageName)) return
+
+        val visible = when (accessibilityEvent.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> true
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> when {
+                accessibilityEvent.windowChanges and AccessibilityEvent.WINDOWS_CHANGE_REMOVED != 0 -> false
+                accessibilityEvent.windowChanges and (
+                    AccessibilityEvent.WINDOWS_CHANGE_ADDED or
+                        AccessibilityEvent.WINDOWS_CHANGE_ACTIVE or
+                        AccessibilityEvent.WINDOWS_CHANGE_FOCUSED
+                    ) != 0 -> true
+                else -> null
+            }
+            else -> null
+        } ?: return
+
+        AccessibilityOverlayBridge.notifyAssistantWindowChanged(
+            SystemAssistantWindowEvent(
+                packageName = packageName,
+                visible = visible,
+                eventType = accessibilityEvent.eventType,
+                windowChanges = accessibilityEvent.windowChanges,
+            ),
+        )
+    }
 
     override fun onInterrupt() = Unit
 

@@ -4,6 +4,6 @@
     <string name="notification_channel_name">玻璃球悬浮层</string>
     <string name="notification_channel_description">保持灵动胶囊在其他应用上方显示</string>
     <string name="notification_title">灵动玻璃球正在运行</string>
-    <string name="accessibility_service_label">灵动玻璃球状态栏触控</string>
-    <string name="accessibility_service_description">仅用于状态栏区域触控和可信悬浮窗口。不读取屏幕内容、不截图、不执行手势、不监听按键。</string>
+    <string name="accessibility_service_label">灵动玻璃球触控与助手联动</string>
+    <string name="accessibility_service_description">用于状态栏区域触控和识别已知系统语音助手窗口的出现与消失。不读取文字、不截图、不录音、不执行手势、不监听按键。</string>
 </resources>

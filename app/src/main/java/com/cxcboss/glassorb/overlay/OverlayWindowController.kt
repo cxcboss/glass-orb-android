@@ -83,6 +83,8 @@ class OverlayWindowController(
     private var showDarkCapsuleOutline = false
     private var collapseReleaseVelocityDpPerSecond = 0f
     private var collapseDirection = 0
+    private var systemAssistantWindowVisible = false
+    private var assistantTriggeredExpansion = false
     private val thinkingTimeout = Runnable {
         stateMachine.onThinkingTimeout()
         thinkingSpring.target = 0f
@@ -91,6 +93,24 @@ class OverlayWindowController(
     }
 
     private val autoCollapseTimeout = Runnable { beginAutomaticCollapse() }
+
+    private val assistantCollapseTimeout = object : Runnable {
+        override fun run() {
+            if (systemAssistantWindowVisible) return
+            if (view == null) {
+                assistantTriggeredExpansion = false
+                return
+            }
+            when (stateMachine.state) {
+                OverlayState.Expanding -> mainHandler.postDelayed(this, ASSISTANT_COLLAPSE_DELAY_MS)
+                OverlayState.Wave, OverlayState.Thinking -> {
+                    assistantTriggeredExpansion = false
+                    beginAutomaticCollapse()
+                }
+                else -> assistantTriggeredExpansion = false
+            }
+        }
+    }
 
     private val permissionCheck = object : Runnable {
         override fun run() {
@@ -198,6 +218,9 @@ class OverlayWindowController(
     fun hide() {
         mainHandler.removeCallbacks(thinkingTimeout)
         mainHandler.removeCallbacks(autoCollapseTimeout)
+        mainHandler.removeCallbacks(assistantCollapseTimeout)
+        systemAssistantWindowVisible = false
+        assistantTriggeredExpansion = false
         mainHandler.removeCallbacks(permissionCheck)
         stateMachine.hide()
         removeView()
@@ -210,6 +233,30 @@ class OverlayWindowController(
     /** Receives touch events from the trusted accessibility proxy when needed. */
     internal fun dispatchAccessibilityTouch(host: View, event: MotionEvent): Boolean =
         onTouch(host, event)
+
+    /**
+     * Receives only package-filtered assistant window lifecycle signals from
+     * the accessibility service. The assistant remains system-owned; the
+     * existing accessibility overlay visually covers it while the orb is up.
+     */
+    internal fun onSystemAssistantWindowChanged(event: SystemAssistantWindowEvent) {
+        if (!SystemAssistantPackages.isSupported(event.packageName)) return
+        mainHandler.post {
+            if (event.visible) {
+                systemAssistantWindowVisible = true
+                mainHandler.removeCallbacks(assistantCollapseTimeout)
+                if (view != null && stateMachine.state == OverlayState.Collapsed) {
+                    beginExpand(triggeredBySystemAssistant = true)
+                }
+            } else {
+                systemAssistantWindowVisible = false
+                if (assistantTriggeredExpansion) {
+                    mainHandler.removeCallbacks(assistantCollapseTimeout)
+                    mainHandler.postDelayed(assistantCollapseTimeout, ASSISTANT_COLLAPSE_DELAY_MS)
+                }
+            }
+        }
+    }
 
     /** Returns the capsule proxy bounds for the status-bar edge case. */
     internal fun currentAccessibilityTouchBounds(): IntRect? {
@@ -431,6 +478,8 @@ class OverlayWindowController(
                 cancelledByMultitouch = false
                 trackingSwipe = false
                 collapseDirection = 0
+                assistantTriggeredExpansion = false
+                mainHandler.removeCallbacks(assistantCollapseTimeout)
                 downRawX = event.rawX
                 downRawY = event.rawY
                 velocityTracker?.recycle()
@@ -536,12 +585,16 @@ class OverlayWindowController(
     private fun handleTap() {
         when (stateMachine.state) {
             OverlayState.Collapsed -> beginExpand()
-            OverlayState.Wave, OverlayState.Thinking -> beginThinking()
+            OverlayState.Wave, OverlayState.Thinking -> {
+                assistantTriggeredExpansion = false
+                beginThinking()
+            }
             else -> Unit
         }
     }
 
-    private fun beginExpand() {
+    private fun beginExpand(triggeredBySystemAssistant: Boolean = false) {
+        assistantTriggeredExpansion = triggeredBySystemAssistant
         collapseReleaseVelocityDpPerSecond = 0f
         collapseDirection = 0
         resetCollapseRebound()
@@ -679,6 +732,7 @@ class OverlayWindowController(
 
     private fun beginAutomaticCollapse() {
         if (stateMachine.state != OverlayState.Wave && stateMachine.state != OverlayState.Thinking) return
+        assistantTriggeredExpansion = false
         mainHandler.removeCallbacks(thinkingTimeout)
         stateMachine.beginAutomaticCollapse()
         collapseReleaseVelocityDpPerSecond = 0f
@@ -978,5 +1032,6 @@ class OverlayWindowController(
 
     private companion object {
         const val PERMISSION_CHECK_INTERVAL_MS = 15_000L
+        const val ASSISTANT_COLLAPSE_DELAY_MS = 420L
     }
 }

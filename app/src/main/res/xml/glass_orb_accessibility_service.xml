@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The framework requires an event filter for this service declaration. It
-     is restricted to this app and the service never reads those events. -->
+<!-- Only the known assistant package is observed. The service reports window
+     lifecycle changes and never reads text, screenshots, gestures, or audio. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/accessibility_service_description"
-    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:packageNames="com.cxcboss.glassorb"
+    android:packageNames="com.heytap.speechassist"
     android:notificationTimeout="100"
     android:canRetrieveWindowContent="false"
     android:canRequestFilterKeyEvents="false"

@@ -53,6 +53,7 @@ class OrbOverlayService : Service() {
             handler = controller::dispatchAccessibilityTouch,
             provider = controller::currentAccessibilityTouchBounds,
             onConnectionChanged = controller::refreshTouchBoundsForAccessibility,
+            onAssistantWindowChanged = controller::onSystemAssistantWindowChanged,
         )
         registerScreenReceiver()
         val powerManager = getSystemService(PowerManager::class.java)
