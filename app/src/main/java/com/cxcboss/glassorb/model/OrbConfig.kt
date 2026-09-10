@@ -21,6 +21,7 @@ data class GeometryConfig(
     val touchAreaScale: Float = 1.35f,
     val expandBelowCapsule: Boolean = false,
     val hideWhenStatusBarHidden: Boolean = true,
+    val followScreenRotation: Boolean = false,
 )
 
 data class GlassConfig(
@@ -34,6 +35,12 @@ data class GlassConfig(
     val shadowOffset: Float = 0.3f,
     val causticOffset: Float = -1f,
     val lightSoftness: Float = 4.2f,
+    /** Adds a hue rotation to the live wave/dot palette and the caustics. */
+    val internalHueDegrees: Float = 0f,
+    /** Hue used by the non-white upper highlight lobe. */
+    val upperHighlightHueDegrees: Float = 210f,
+    /** Amount of the colored upper highlight, independent of highlight geometry. */
+    val upperHighlightAmount: Float = 0.85f,
 )
 
 data class ContainerConfig(
@@ -131,6 +138,9 @@ data class OrbConfig(
                 shadowOffset = glass.shadowOffset.safeRange(-3f, 3f, defaults.glass.shadowOffset),
                 causticOffset = glass.causticOffset.safeRange(-4f, 4f, defaults.glass.causticOffset),
                 lightSoftness = glass.lightSoftness.safeRange(0.5f, 10f, defaults.glass.lightSoftness),
+                internalHueDegrees = glass.internalHueDegrees.safeRange(0f, 360f, defaults.glass.internalHueDegrees),
+                upperHighlightHueDegrees = glass.upperHighlightHueDegrees.safeRange(0f, 360f, defaults.glass.upperHighlightHueDegrees),
+                upperHighlightAmount = glass.upperHighlightAmount.safeRange(0f, 2f, defaults.glass.upperHighlightAmount),
             ),
             container = container.copy(
                 strength = container.strength.safeRange(0f, 4f, defaults.container.strength),

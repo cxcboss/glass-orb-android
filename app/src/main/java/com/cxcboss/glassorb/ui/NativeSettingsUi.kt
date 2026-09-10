@@ -315,8 +315,8 @@ internal class NativeSettingsController(
         section(content, "外观与位置") {
             addNavigationRow(this, "尺寸、位置与触控", "横屏位置、胶囊、玻璃球与触控范围") { navigate(ConfigGroup.Geometry) }
             addNavigationRow(this, "背景与暗部", "屏幕压暗、暗部强度与渐变") { navigate(ConfigGroup.Container) }
-            addNavigationRow(this, "玻璃质感", "高光、折射与投影") { navigate(ConfigGroup.Glass) }
-            addNavigationRow(this, "波形效果", "颜色、线条与亮度") { navigate(ConfigGroup.Wave) }
+            addNavigationRow(this, "玻璃质感", "内部色彩、上半部高光、折射与投影") { navigate(ConfigGroup.Glass) }
+            addNavigationRow(this, "波形效果", "运动、线条与亮度") { navigate(ConfigGroup.Wave) }
             addNavigationRow(this, "思考圆点", "大小、光晕与旋转") { navigate(ConfigGroup.Dots) }
         }
         section(content, "交互与运行效率") {
@@ -399,6 +399,15 @@ internal class NativeSettingsController(
         addAnchor(anchors, "右侧", HorizontalAnchor.Right)
         content.addView(anchors, matchWrap())
         divider(content)
+
+        addSwitchRow(
+            content,
+            "跟随屏幕旋转",
+            "默认关闭：横屏保持竖屏的角度、大小、位置和顶部锚点；开启后按当前屏幕安全区布局",
+            config.geometry.followScreenRotation,
+        ) { enabled ->
+            updateConfig { it.copy(geometry = it.geometry.copy(followScreenRotation = enabled)) }
+        }
 
         val verticalDensity = activity.resources.displayMetrics.density.coerceAtLeast(0.1f)
         addSlider(
@@ -485,6 +494,40 @@ internal class NativeSettingsController(
         }
         addSlider(content, "高光收束", config.glass.highlightCut, OrbConfig.reference().glass.highlightCut, 0f..1f, decimals = 2) { value ->
             updateConfig { current -> current.copy(glass = current.glass.copy(highlightCut = value)) }
+        }
+        addSubheading(content, "动态颜色")
+        addSlider(
+            content,
+            "内部颜色",
+            config.glass.internalHueDegrees,
+            OrbConfig.reference().glass.internalHueDegrees,
+            0f..360f,
+            "°",
+            decimals = 0,
+        ) { value ->
+            updateConfig { current -> current.copy(glass = current.glass.copy(internalHueDegrees = value)) }
+        }
+        addNote(content, "调整玻璃球内部波形与圆点的整体色相，焦散颜色会同步变化。")
+        addSlider(
+            content,
+            "上半部高光颜色",
+            config.glass.upperHighlightHueDegrees,
+            OrbConfig.reference().glass.upperHighlightHueDegrees,
+            0f..360f,
+            "°",
+            decimals = 0,
+        ) { value ->
+            updateConfig { current -> current.copy(glass = current.glass.copy(upperHighlightHueDegrees = value)) }
+        }
+        addSlider(
+            content,
+            "上半部高光强度",
+            config.glass.upperHighlightAmount,
+            OrbConfig.reference().glass.upperHighlightAmount,
+            0f..2f,
+            decimals = 2,
+        ) { value ->
+            updateConfig { current -> current.copy(glass = current.glass.copy(upperHighlightAmount = value)) }
         }
         addSubheading(content, "阴影与焦散")
         addSlider(content, "阴影", config.glass.shadowAmount, OrbConfig.reference().glass.shadowAmount, 0f..1.5f, decimals = 2) { value ->

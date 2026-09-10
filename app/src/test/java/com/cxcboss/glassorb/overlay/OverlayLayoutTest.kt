@@ -89,6 +89,40 @@ class OverlayLayoutTest {
     }
 
     @Test
+    fun `landscape portrait lock ignores side insets by default`() {
+        val display = IntRect(left = 0, top = 0, right = 2280, bottom = 1080)
+        val insets = IntRect(left = 96, top = 0, right = 96, bottom = 24)
+
+        val safe = OverlayLayout.safeBoundsForDisplay(
+            displayBounds = display,
+            systemInsets = insets,
+            landscape = true,
+            followScreenRotation = false,
+        )
+
+        assertEquals(0, safe.left)
+        assertEquals(2280, safe.right)
+        assertEquals(1056, safe.bottom)
+    }
+
+    @Test
+    fun `landscape follow rotation respects current side insets`() {
+        val display = IntRect(left = 0, top = 0, right = 2280, bottom = 1080)
+        val insets = IntRect(left = 96, top = 0, right = 96, bottom = 24)
+
+        val safe = OverlayLayout.safeBoundsForDisplay(
+            displayBounds = display,
+            systemInsets = insets,
+            landscape = true,
+            followScreenRotation = true,
+        )
+
+        assertEquals(96, safe.left)
+        assertEquals(2184, safe.right)
+        assertEquals(1056, safe.bottom)
+    }
+
+    @Test
     fun `status bar overlap moves touch proxy below protected input strip`() {
         val visual = IntRect(left = 390, top = 0, right = 690, bottom = 102)
 

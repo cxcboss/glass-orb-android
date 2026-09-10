@@ -108,7 +108,10 @@ internal class GlOrbPipeline(
             effectProgram.float("uBandFillThickness", config.wave.bandFillThickness)
             effectProgram.float("uSoftness", config.wave.softness)
             effectProgram.float("uWhiteClip", config.wave.whiteBloom)
-            effectProgram.float("uHueShift", config.wave.hueShiftDegrees)
+            effectProgram.float(
+                "uHueShift",
+                config.wave.hueShiftDegrees + config.glass.internalHueDegrees,
+            )
             effectProgram.float("uLow", snapshot.bands.low)
             effectProgram.float("uMid", snapshot.bands.mid)
             effectProgram.float("uHigh", snapshot.bands.high)
@@ -174,6 +177,9 @@ internal class GlOrbPipeline(
         glassProgram.float("uShadowOffsetY", config.glass.shadowOffset)
         glassProgram.float("uCausticOffsetY", config.glass.causticOffset)
         glassProgram.float("uProjectionSoftness", config.glass.lightSoftness * density)
+        glassProgram.float("uInternalHueShift", config.glass.internalHueDegrees / 360f)
+        glassProgram.float("uUpperHighlightHue", config.glass.upperHighlightHueDegrees / 360f)
+        glassProgram.float("uUpperHighlightAmount", config.glass.upperHighlightAmount)
         drawQuad()
 
         GLES30.glBindVertexArray(0)

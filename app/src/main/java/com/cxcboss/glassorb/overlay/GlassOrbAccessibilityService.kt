@@ -12,6 +12,21 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import com.cxcboss.glassorb.BuildConfig
 
+internal fun assistantWindowDisappearanceEvent(
+    reportedPackage: String?,
+    visibleAssistantPackages: Set<String>,
+): SystemAssistantWindowEvent? {
+    if (reportedPackage == null || visibleAssistantPackages.isNotEmpty() ||
+        !SystemAssistantPackages.isSupported(reportedPackage)
+    ) return null
+    return SystemAssistantWindowEvent(
+        packageName = reportedPackage,
+        visible = false,
+        eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+        windowChanges = AccessibilityEvent.WINDOWS_CHANGE_REMOVED,
+    )
+}
+
 /**
  * Minimal trusted-window host for the optional status-bar touch target.
  * The service opts into interactive-window metadata because Android does not
@@ -26,6 +41,7 @@ class GlassOrbAccessibilityService : AccessibilityService() {
     private var touchView: View? = null
     private var touchParams: WindowManager.LayoutParams? = null
     private var reportedAssistantPackage: String? = null
+    private var emptyAssistantWindowObservations = 0
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -115,15 +131,25 @@ class GlassOrbAccessibilityService : AccessibilityService() {
     }
 
     private fun reportWindowSetChanged(event: AccessibilityEvent) {
-        val visiblePackages = visibleAssistantPackages()
         val eventPackage = event.packageName?.toString()
             ?.takeIf(SystemAssistantPackages::isSupported)
         val removed = event.windowChanges and AccessibilityEvent.WINDOWS_CHANGE_REMOVED != 0
 
+        val visiblePackages = visibleAssistantPackages() ?: run {
+            // A query failure is an unknown state, never proof that the
+            // assistant disappeared. Keep the last state until a later retry.
+            if (eventPackage != null && !removed) {
+                reportAssistantWindow(eventPackage, visible = true, event = event)
+            }
+            return
+        }
+
         // Some ROMs expose the package on the event but temporarily return an
         // empty window list while adding/removing a full-screen overlay.
         if (eventPackage != null && removed && visiblePackages.isEmpty()) {
-            reportAssistantWindow(eventPackage, visible = false, event = event)
+            // The scheduled rechecks below confirm disappearance. A transient
+            // empty getWindows() result during OEM window attachment must not
+            // close a freshly opened assistant overlay.
             return
         }
         if (visiblePackages.isNotEmpty()) {
@@ -137,17 +163,33 @@ class GlassOrbAccessibilityService : AccessibilityService() {
             return
         }
 
-        // A removed window is the only reliable disappearance signal. Do not
-        // turn unrelated window changes into a false event after the assistant
-        // has already been cleared.
-        if (reportedAssistantPackage != null && removed) {
-            reportAssistantWindow(reportedAssistantPackage!!, visible = false, event = event)
-        }
+        // A removed-window event starts the delayed confirmation below. Do not
+        // turn one transient empty list or an unrelated window change into a
+        // false disappearance after the assistant has already been cleared.
     }
 
     private fun reportCurrentAssistantWindow() {
-        val visiblePackages = visibleAssistantPackages()
-        val packageName = visiblePackages.firstOrNull() ?: return
+        val visiblePackages = visibleAssistantPackages() ?: return
+        val packageName = visiblePackages.firstOrNull()
+        if (packageName == null) {
+            // Some Xiaomi builds do not mark the assistant's final window
+            // event as REMOVED. The delayed window recheck is still the
+            // authoritative source, so explicitly turn the last reported
+            // assistant off when the supported window set becomes empty.
+            if (reportedAssistantPackage == null) return
+            emptyAssistantWindowObservations += 1
+            if (emptyAssistantWindowObservations < ASSISTANT_EMPTY_CONFIRMATIONS) return
+            assistantWindowDisappearanceEvent(
+                reportedPackage = reportedAssistantPackage,
+                visibleAssistantPackages = visiblePackages,
+            )?.let { disappearance ->
+                AccessibilityOverlayBridge.notifyAssistantWindowChanged(disappearance)
+                reportedAssistantPackage = null
+                emptyAssistantWindowObservations = 0
+            }
+            return
+        }
+        emptyAssistantWindowObservations = 0
         AccessibilityOverlayBridge.notifyAssistantWindowChanged(
             SystemAssistantWindowEvent(
                 packageName = packageName,
@@ -173,6 +215,7 @@ class GlassOrbAccessibilityService : AccessibilityService() {
             ),
         )
         reportedAssistantPackage = if (visible) packageName else null
+        emptyAssistantWindowObservations = 0
     }
 
     /**
@@ -180,13 +223,13 @@ class GlassOrbAccessibilityService : AccessibilityService() {
      * The official window list lets us resolve the source window by its root
      * package without reading any node text or traversing the hierarchy.
      */
-    private fun visibleAssistantPackages(): Set<String> = runCatching {
+    private fun visibleAssistantPackages(): Set<String>? = runCatching {
         visibleWindowPackages()
             .filter(SystemAssistantPackages::isSupported)
             .toSet()
     }.onFailure {
         if (BuildConfig.DEBUG) Log.d(TAG, "Unable to query interactive windows", it)
-    }.getOrDefault(emptySet())
+    }.getOrNull()
 
     private fun visibleWindowPackages(): Set<String> = getWindows()
             .asSequence()
@@ -253,5 +296,6 @@ class GlassOrbAccessibilityService : AccessibilityService() {
 
     private companion object {
         const val TAG = "GlassOrbAccessibility"
+        const val ASSISTANT_EMPTY_CONFIRMATIONS = 2
     }
 }

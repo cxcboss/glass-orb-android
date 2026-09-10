@@ -12,7 +12,11 @@ class OrbConfigTest {
         assertEquals(118f, config.geometry.capsuleWidthDp, 0f)
         assertEquals(34f, config.geometry.capsuleHeightDp, 0f)
         assertEquals(128f, config.geometry.orbDiameterDp, 0f)
+        assertEquals(false, config.geometry.followScreenRotation)
         assertEquals(0.72f, config.glass.highlightAmount, 0f)
+        assertEquals(0f, config.glass.internalHueDegrees, 0f)
+        assertEquals(210f, config.glass.upperHighlightHueDegrees, 0f)
+        assertEquals(0.85f, config.glass.upperHighlightAmount, 0f)
         assertEquals(1.6f, config.glass.causticAmount, 0f)
         assertEquals(true, config.container.backgroundDimEnabled)
         assertEquals(30_000f, config.wave.bandFill, 0f)
@@ -81,6 +85,11 @@ class OrbConfigTest {
     fun `json round trip keeps a customized snapshot`() {
         val original = OrbConfig.bright().copy(
             geometry = OrbConfig.bright().geometry.copy(horizontalOffsetDp = 42f),
+            glass = OrbConfig.bright().glass.copy(
+                internalHueDegrees = 135f,
+                upperHighlightHueDegrees = 278f,
+                upperHighlightAmount = 1.35f,
+            ),
             wave = OrbConfig.bright().wave.copy(hueShiftDegrees = -35f),
             motion = OrbConfig.bright().motion.copy(
                 collapseRangeDp = 52f,
@@ -97,6 +106,17 @@ class OrbConfigTest {
         val restored = OrbConfigJson.decode(OrbConfigJson.encode(original)).getOrThrow()
 
         assertEquals(original, restored)
+    }
+
+    @Test
+    fun `imported color controls are clamped`() {
+        val restored = OrbConfigJson.decode(
+            """{"glass":{"internalHueDegrees":-40,"upperHighlightHueDegrees":500,"upperHighlightAmount":9}}""",
+        ).getOrThrow()
+
+        assertEquals(0f, restored.glass.internalHueDegrees, 0f)
+        assertEquals(360f, restored.glass.upperHighlightHueDegrees, 0f)
+        assertEquals(2f, restored.glass.upperHighlightAmount, 0f)
     }
 
     @Test

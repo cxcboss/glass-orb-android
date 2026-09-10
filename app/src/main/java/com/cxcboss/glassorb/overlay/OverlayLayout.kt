@@ -18,6 +18,27 @@ data class IntRect(
 object OverlayLayout {
     const val WINDOW_TOP_PADDING_DP = 0f
 
+    /**
+     * Selects the display-safe rectangle without changing the existing
+     * portrait/top-anchor convention. Rotation-following is opt-in: with it
+     * disabled, landscape side insets are ignored so the island keeps the
+     * same display-relative horizontal anchor, size and top offset.
+     */
+    fun safeBoundsForDisplay(
+        displayBounds: IntRect,
+        systemInsets: IntRect,
+        landscape: Boolean,
+        followScreenRotation: Boolean,
+    ): IntRect {
+        val lockedLandscape = landscape && !followScreenRotation
+        return IntRect(
+            left = if (lockedLandscape) displayBounds.left else displayBounds.left + systemInsets.left,
+            top = displayBounds.top,
+            right = if (lockedLandscape) displayBounds.right else displayBounds.right - systemInsets.right,
+            bottom = displayBounds.bottom - systemInsets.bottom,
+        )
+    }
+
     fun collapsedBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {
         val width = max(geometry.capsuleWidthDp, MIN_TOUCH_DP).dpToPx(density)
         val height = max(geometry.capsuleHeightDp, MIN_TOUCH_DP).dpToPx(density)

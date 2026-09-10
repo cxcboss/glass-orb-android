@@ -1008,21 +1008,60 @@ class OverlayWindowController(
             )
             val landscape = context.resources.configuration.orientation ==
                 android.content.res.Configuration.ORIENTATION_LANDSCAPE
-            IntRect(
-                // In landscape the navigation/status insets can be attached
-                // to a side. Do not let them move the top island away from
-                // the same display-relative anchor used in portrait.
-                left = if (landscape) bounds.left else bounds.left + insets.left,
-                top = bounds.top,
-                right = if (landscape) bounds.right else bounds.right - insets.right,
-                bottom = bounds.bottom - insets.bottom,
+            OverlayLayout.safeBoundsForDisplay(
+                displayBounds = IntRect(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                systemInsets = IntRect(insets.left, insets.top, insets.right, insets.bottom),
+                landscape = landscape,
+                followScreenRotation = config.geometry.followScreenRotation,
             )
         } else {
             @Suppress("DEPRECATION")
-            val point = Point().also(windowManager.defaultDisplay::getRealSize)
-            val navigationBar = systemDimension("navigation_bar_height")
-            IntRect(0, 0, point.x, (point.y - navigationBar).coerceAtLeast(1))
+            val display = windowManager.defaultDisplay
+            val point = Point().also(display::getRealSize)
+            val landscape = context.resources.configuration.orientation ==
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            val insets = legacyDisplayInsets(display, landscape)
+            OverlayLayout.safeBoundsForDisplay(
+                displayBounds = IntRect(0, 0, point.x, point.y),
+                systemInsets = insets,
+                landscape = landscape,
+                followScreenRotation = config.geometry.followScreenRotation,
+            )
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun legacyDisplayInsets(
+        display: android.view.Display,
+        landscape: Boolean,
+    ): IntRect {
+        // Once the overlay view exists, its root insets are the most accurate
+        // source on API 29, including OEM navigation bars and cutouts.
+        view?.rootWindowInsets?.let { rootInsets ->
+            return IntRect(
+                left = rootInsets.systemWindowInsetLeft,
+                top = rootInsets.systemWindowInsetTop,
+                right = rootInsets.systemWindowInsetRight,
+                bottom = rootInsets.systemWindowInsetBottom,
+            )
+        }
+
+        // During initial creation there is no root view yet. Reconstruct the
+        // stable API 29 system-bar geometry from the framework navigation
+        // dimensions so rotation-following also works on the minimum supported
+        // Android version. Cutout insets are supplied by the root-view branch
+        // above once the overlay has been attached.
+        val navigationWidth = systemDimension("navigation_bar_width")
+        val navigationHeight = systemDimension("navigation_bar_height")
+        val rotation = display.rotation
+        val navigationLeft = if (landscape && rotation == android.view.Surface.ROTATION_270) navigationWidth else 0
+        val navigationRight = if (landscape && rotation == android.view.Surface.ROTATION_90) navigationWidth else 0
+        return IntRect(
+            left = navigationLeft,
+            top = 0,
+            right = navigationRight,
+            bottom = if (landscape) 0 else navigationHeight,
+        )
     }
 
     private fun touchBounds(expanded: Boolean, safe: IntRect): IntRect {

@@ -30,6 +30,9 @@ uniform float uCausticAmount;
 uniform float uShadowOffsetY;
 uniform float uCausticOffsetY;
 uniform float uProjectionSoftness;
+uniform float uInternalHueShift;
+uniform float uUpperHighlightHue;
+uniform float uUpperHighlightAmount;
 
 uniform float uGlassVisibility;
 uniform float uGlassContentOpacity;
@@ -40,6 +43,50 @@ out vec4 outColor;
 
 float saturate(float x) {
 	return clamp(x, 0.0, 1.0);
+}
+
+vec3 rgbToHsv(vec3 color) {
+	float maxChannel = max(color.r, max(color.g, color.b));
+	float minChannel = min(color.r, min(color.g, color.b));
+	float delta = maxChannel - minChannel;
+	float hue = 0.0;
+	if (delta > 0.00001) {
+		if (maxChannel == color.r) {
+			hue = mod((color.g - color.b) / delta, 6.0);
+		} else if (maxChannel == color.g) {
+			hue = (color.b - color.r) / delta + 2.0;
+		} else {
+			hue = (color.r - color.g) / delta + 4.0;
+		}
+		hue /= 6.0;
+	}
+	float saturation = maxChannel <= 0.00001 ? 0.0 : delta / maxChannel;
+	return vec3(fract(hue), saturation, maxChannel);
+}
+
+vec3 hsvToRgb(vec3 hsv) {
+	float h = fract(hsv.x) * 6.0;
+	float sector = floor(h);
+	float fraction = h - sector;
+	float p = hsv.z * (1.0 - hsv.y);
+	float q = hsv.z * (1.0 - hsv.y * fraction);
+	float t = hsv.z * (1.0 - hsv.y * (1.0 - fraction));
+	if (sector < 1.0) return vec3(hsv.z, t, p);
+	if (sector < 2.0) return vec3(q, hsv.z, p);
+	if (sector < 3.0) return vec3(p, hsv.z, t);
+	if (sector < 4.0) return vec3(p, q, hsv.z);
+	if (sector < 5.0) return vec3(t, p, hsv.z);
+	return vec3(hsv.z, p, q);
+}
+
+vec3 hueShift(vec3 color, float shift) {
+	vec3 hsv = rgbToHsv(color);
+	hsv.x = fract(hsv.x + shift);
+	return hsvToRgb(hsv);
+}
+
+vec3 hueColor(float hue) {
+	return hsvToRgb(vec3(fract(hue), 0.82, 1.0));
 }
 
 vec2 rotate2d(vec2 v, float a) {
@@ -166,7 +213,9 @@ vec4 outsideProjection(vec2 p, vec2 halfSize, float cornerRadius) {
 	vec2 n = p / max(halfSize, vec2(1.0));
 	float seam = seamSoftness / r;
 	float under = smoothstep(0.02 - seam * 0.7, 0.9 + seam * 0.9, n.y);
-	vec3 glow = vec3(1.0, 0.82, 0.46) * caustic + vec3(0.78, 0.9, 1.0) * core * 0.34;
+	vec3 causticColor = hueShift(vec3(1.0, 0.82, 0.46), uInternalHueShift);
+	vec3 coreColor = hueShift(vec3(0.78, 0.9, 1.0), uInternalHueShift);
+	vec3 glow = causticColor * caustic + coreColor * core * 0.34;
 	vec3 light = clamp(glow * under * uCausticAmount, 0.0, 1.0);
     float lightAlpha = max(light.r, max(light.g, light.b));
     float shadowAlpha = saturate(shadow * uShadowAmount);
@@ -200,11 +249,17 @@ void main() {
 		return;
     }
     vec2 grad = shapeGradient(p, halfSize, uCornerRadius, uGradRadialMix);
-    vec2 uv = clamp(refractedUv(pixel / uCanvasSize, d, grad), 0.0, 1.0);
-    // Only the generated scene is warped. No screen capture/background texture.
-    vec4 scene = texture(uSceneTexture, vec2(uv.x, 1.0 - uv.y));
-    float highlight = saturate(highlightBand(d, grad) * uHlAmount);
-    vec3 glassRgb = clamp(scene.rgb + vec3(highlight), 0.0, 1.0);
+	vec2 uv = clamp(refractedUv(pixel / uCanvasSize, d, grad), 0.0, 1.0);
+	// Only the generated scene is warped. No screen capture/background texture.
+	vec4 scene = texture(uSceneTexture, vec2(uv.x, 1.0 - uv.y));
+	float highlight = saturate(highlightBand(d, grad) * uHlAmount);
+	float upperMask = 1.0 - smoothstep(-0.32, 0.70, p.y / max(halfSize.y, 1.0));
+	float upperHighlight = highlight * upperMask * uUpperHighlightAmount;
+	vec3 glassRgb = clamp(
+		scene.rgb + vec3(highlight * (1.0 - upperMask)) + hueColor(uUpperHighlightHue) * upperHighlight,
+		0.0,
+		1.0
+	);
     float glassAlpha = max(scene.a, max(glassRgb.r, max(glassRgb.g, glassRgb.b)));
     // Keep the morphing body optically dense until it is almost a sphere. Letting
     // the alpha follow the early morph progress exposes a light wallpaper through

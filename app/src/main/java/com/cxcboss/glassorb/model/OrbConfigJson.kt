@@ -20,6 +20,7 @@ object OrbConfigJson {
                 put("touchAreaScale", value.geometry.touchAreaScale)
                 put("expandBelowCapsule", value.geometry.expandBelowCapsule)
                 put("hideWhenStatusBarHidden", value.geometry.hideWhenStatusBarHidden)
+                put("followScreenRotation", value.geometry.followScreenRotation)
             })
             put("glass", JSONObject().apply {
                 put("internalDepth", value.glass.internalDepth)
@@ -32,6 +33,9 @@ object OrbConfigJson {
                 put("shadowOffset", value.glass.shadowOffset)
                 put("causticOffset", value.glass.causticOffset)
                 put("lightSoftness", value.glass.lightSoftness)
+                put("internalHueDegrees", value.glass.internalHueDegrees)
+                put("upperHighlightHueDegrees", value.glass.upperHighlightHueDegrees)
+                put("upperHighlightAmount", value.glass.upperHighlightAmount)
             })
             put("container", JSONObject().apply {
                 put("strength", value.container.strength)
@@ -112,6 +116,7 @@ object OrbConfigJson {
                 touchAreaScale = geometry.float("touchAreaScale", defaults.geometry.touchAreaScale),
                 expandBelowCapsule = geometry.boolean("expandBelowCapsule", defaults.geometry.expandBelowCapsule),
                 hideWhenStatusBarHidden = geometry.boolean("hideWhenStatusBarHidden", defaults.geometry.hideWhenStatusBarHidden),
+                followScreenRotation = geometry.boolean("followScreenRotation", defaults.geometry.followScreenRotation),
             ),
             glass = defaults.glass.copy(
                 internalDepth = glass.float("internalDepth", defaults.glass.internalDepth),
@@ -124,6 +129,9 @@ object OrbConfigJson {
                 shadowOffset = glass.float("shadowOffset", defaults.glass.shadowOffset),
                 causticOffset = glass.float("causticOffset", defaults.glass.causticOffset),
                 lightSoftness = glass.float("lightSoftness", defaults.glass.lightSoftness),
+                internalHueDegrees = glass.float("internalHueDegrees", defaults.glass.internalHueDegrees),
+                upperHighlightHueDegrees = glass.float("upperHighlightHueDegrees", defaults.glass.upperHighlightHueDegrees),
+                upperHighlightAmount = glass.float("upperHighlightAmount", defaults.glass.upperHighlightAmount),
             ),
             container = defaults.container.copy(
                 strength = container.float("strength", defaults.container.strength),
