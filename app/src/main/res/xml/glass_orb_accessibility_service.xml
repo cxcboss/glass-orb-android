@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- TYPE_WINDOWS_CHANGED is a system window event. Android only delivers it
      when the service opts into interactive-window metadata. The implementation
-     reads only the root package name for a small allowlist; it never traverses
+     reads only package/class metadata for a small allowlist; it never traverses
      text, takes screenshots, performs gestures, or records audio. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/accessibility_service_description"
-    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged|typeWindowContentChanged"
     android:accessibilityFlags="flagRetrieveInteractiveWindows"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="100"

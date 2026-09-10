@@ -34,7 +34,10 @@ internal object FullscreenCapsuleMotion {
             (1f - smoothstep(0.20f, 0.42f, progress))
         val shrink = smoothstep(0.20f, 1f, progress)
         val scale = max(0.08f, 1f + 0.10f * swell - 1.04f * shrink)
-        val opacity = 1f - smoothstep(0.34f, 0.90f, progress)
+        // Keep the alpha handoff alive for the full hide spring. The old
+        // endpoint made the capsule visually disappear well before the host
+        // finished its transition, which read as an abrupt cut on fullscreen.
+        val opacity = 1f - smoothstep(0.26f, 1f, progress)
         return FullscreenCapsuleFrame(scale = scale, opacity = opacity)
     }
 

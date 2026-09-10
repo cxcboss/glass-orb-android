@@ -457,7 +457,12 @@ class OverlayWindowController(
         val springProgress = if (stateMachine.state is OverlayState.SwipeTracking) 1f else morphSpring.value
         updateRenderAnchors(springProgress)
 
-        val targetFps = if (stateMachine.state == OverlayState.Collapsed) {
+        val targetFps = if (fullscreenTransition != FullscreenCapsulePhase.None) {
+            // Fullscreen handoff is an explicitly animated state. Do not let
+            // the user's collapsed idle-FPS preference quantize it to 30/60;
+            // submit one frame per display vsync up to 120Hz.
+            120
+        } else if (stateMachine.state == OverlayState.Collapsed) {
             config.performance.collapsedFps
         } else {
             // Interactive morphing must use every display vsync. A persisted
@@ -664,6 +669,11 @@ class OverlayWindowController(
         morphSpring.snapTo(0f)
         morphSpring.target = 1f
         markStateStart()
+        // Assistant callbacks enter directly from the accessibility service,
+        // outside the touch path that normally schedules the next vsync.
+        // Always kick the frame loop here so the expansion cannot remain
+        // stuck in Expanding with a stale capsule buffer.
+        postFrame()
     }
 
     private fun beginThinking() {
@@ -791,7 +801,15 @@ class OverlayWindowController(
 
     private fun scheduleAutoCollapse() {
         mainHandler.removeCallbacks(autoCollapseTimeout)
-        if (config.motion.autoCollapseEnabled && stateMachine.state == OverlayState.Wave) {
+        // An expansion caused by the system assistant belongs to the
+        // assistant conversation, not to the user's normal orb timeout. If
+        // the regular 4-second timer is armed here, it collapses the orb while
+        // Xiaomi/other OEM assistants are still visible; their next window
+        // update then expands it again, producing a close/reopen loop.
+        if (config.motion.autoCollapseEnabled &&
+            stateMachine.state == OverlayState.Wave &&
+            !(assistantTriggeredExpansion && systemAssistantWindowVisible)
+        ) {
             mainHandler.postDelayed(autoCollapseTimeout, (config.motion.autoCollapseSeconds * 1_000f).roundToInt().toLong())
         }
     }
@@ -1228,9 +1246,11 @@ class OverlayWindowController(
     private companion object {
         const val PERMISSION_CHECK_INTERVAL_MS = 15_000L
         const val STATUS_BAR_VISIBILITY_CHECK_MS = 200L
-        const val FULLSCREEN_HIDE_RESPONSE = 0.34f
+        // Response values are tuned against the settled thresholds below:
+        // both fullscreen directions are approximately 1100ms.
+        const val FULLSCREEN_HIDE_RESPONSE = 0.75f
         const val FULLSCREEN_HIDE_DAMPING = 1f
-        const val FULLSCREEN_SHOW_RESPONSE = 0.42f
+        const val FULLSCREEN_SHOW_RESPONSE = 0.67f
         const val FULLSCREEN_SHOW_DAMPING = 0.64f
         const val ASSISTANT_COLLAPSE_DELAY_MS = 420L
     }

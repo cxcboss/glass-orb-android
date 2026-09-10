@@ -21,6 +21,7 @@ import com.cxcboss.glassorb.BuildConfig
  */
 class GlassOrbAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val delayedWindowRefresh = Runnable { reportCurrentAssistantWindow() }
     private var windowManager: WindowManager? = null
     private var touchView: View? = null
     private var touchParams: WindowManager.LayoutParams? = null
@@ -60,7 +61,24 @@ class GlassOrbAccessibilityService : AccessibilityService() {
                 }
             }
 
-            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> reportWindowSetChanged(accessibilityEvent)
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                // Some OEM voice-assistant surfaces keep one window alive and
+                // only publish content updates while the conversation is open.
+                // We use the event package only; no node content is read.
+                val packageName = accessibilityEvent.packageName?.toString()
+                if (packageName != null && SystemAssistantPackages.isSupported(packageName)) {
+                    reportAssistantWindow(
+                        packageName = packageName,
+                        visible = true,
+                        event = accessibilityEvent,
+                    )
+                }
+            }
+
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
+                reportWindowSetChanged(accessibilityEvent)
+                scheduleWindowRefreshes()
+            }
         }
     }
 
@@ -86,6 +104,14 @@ class GlassOrbAccessibilityService : AccessibilityService() {
         windowManager = null
         reportedAssistantPackage = null
         super.onDestroy()
+    }
+
+    private fun scheduleWindowRefreshes() {
+        mainHandler.removeCallbacks(delayedWindowRefresh)
+        mainHandler.post(delayedWindowRefresh)
+        mainHandler.postDelayed(delayedWindowRefresh, 80L)
+        mainHandler.postDelayed(delayedWindowRefresh, 180L)
+        mainHandler.postDelayed(delayedWindowRefresh, 360L)
     }
 
     private fun reportWindowSetChanged(event: AccessibilityEvent) {
@@ -120,7 +146,8 @@ class GlassOrbAccessibilityService : AccessibilityService() {
     }
 
     private fun reportCurrentAssistantWindow() {
-        val packageName = visibleAssistantPackages().firstOrNull() ?: return
+        val visiblePackages = visibleAssistantPackages()
+        val packageName = visiblePackages.firstOrNull() ?: return
         AccessibilityOverlayBridge.notifyAssistantWindowChanged(
             SystemAssistantWindowEvent(
                 packageName = packageName,
@@ -154,16 +181,19 @@ class GlassOrbAccessibilityService : AccessibilityService() {
      * package without reading any node text or traversing the hierarchy.
      */
     private fun visibleAssistantPackages(): Set<String> = runCatching {
-        getWindows()
-            .asSequence()
-            .mapNotNull { window ->
-                runCatching { window.root?.packageName?.toString() }.getOrNull()
-            }
+        visibleWindowPackages()
             .filter(SystemAssistantPackages::isSupported)
             .toSet()
     }.onFailure {
         if (BuildConfig.DEBUG) Log.d(TAG, "Unable to query interactive windows", it)
     }.getOrDefault(emptySet())
+
+    private fun visibleWindowPackages(): Set<String> = getWindows()
+            .asSequence()
+            .mapNotNull { window ->
+                runCatching { window.root?.packageName?.toString() }.getOrNull()
+            }
+            .toSet()
 
     private fun updateTouchBoundsNow(bounds: IntRect?) {
         val manager = windowManager ?: return
