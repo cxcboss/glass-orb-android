@@ -35,6 +35,7 @@ uniform float uGlassVisibility;
 uniform float uGlassContentOpacity;
 uniform float uCollapsed;
 uniform float uCapsuleOutline;
+uniform float uCapsuleOpacity;
 out vec4 outColor;
 
 float saturate(float x) {
@@ -195,7 +196,7 @@ void main() {
         float capsuleAlpha = 1.0 - smoothstep(-1.0, 1.0, capsuleD);
         // The capsule is deliberately a single opaque black shape. Do not add
         // a rim/highlight here: a second translucent edge can leak the scene.
-        outColor = vec4(0.0, 0.0, 0.0, capsuleAlpha);
+        outColor = vec4(0.0, 0.0, 0.0, capsuleAlpha * uCapsuleOpacity);
 		return;
     }
     vec2 grad = shapeGradient(p, halfSize, uCornerRadius, uGradRadialMix);

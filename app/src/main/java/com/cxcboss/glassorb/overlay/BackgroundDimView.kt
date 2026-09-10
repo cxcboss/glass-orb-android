@@ -43,6 +43,13 @@ internal class BackgroundDimView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun hideImmediately() {
+        fadeAnimator?.cancel()
+        fadeAnimator = null
+        enabled = false
+        alpha = 0f
+    }
+
     override fun onDraw(canvas: Canvas) {
         if (gradientHeightPx <= 0 || width <= 0) return
         paint.shader = LinearGradient(

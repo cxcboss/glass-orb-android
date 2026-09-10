@@ -46,6 +46,8 @@ class OverlayWindowController(
     private val morphSpring = AnalyticSpring(0f, 0.42f, 0.72f)
     private val collapseReboundSpring = AnalyticSpring(0f, 0.5f, 0.72f)
     private val collapseSecondaryReboundSpring = AnalyticSpring(0f, 0.28f, 0.8f)
+    private val collapseFlightSpring = AnalyticSpring(0f, 0.30f, 0.76f)
+    private val fullscreenCapsuleSpring = AnalyticSpring(1f, 0.34f, 1f)
     private val thinkingSpring = AnalyticSpring(0f, 0.34f, 0.82f)
     private val pressSpring = AnalyticSpring(0f, 0.18f, 1f)
     private val gestureReturnSpring = AnalyticSpring(0f, 0.34f, 0.82f)
@@ -87,6 +89,7 @@ class OverlayWindowController(
     private var assistantTriggeredExpansion = false
     private var statusBarHidden = false
     private var fullscreenAutoHidden = false
+    private var fullscreenTransition = FullscreenCapsulePhase.None
     private val thinkingTimeout = Runnable {
         stateMachine.onThinkingTimeout()
         thinkingSpring.target = 0f
@@ -156,6 +159,8 @@ class OverlayWindowController(
         stateMachine.showCollapsed()
         morphSpring.snapTo(0f)
         resetCollapseRebound()
+        fullscreenCapsuleSpring.snapTo(1f)
+        fullscreenTransition = FullscreenCapsulePhase.None
         thinkingSpring.snapTo(0f)
         pressSpring.snapTo(0f)
         gestureReturnSpring.snapTo(0f)
@@ -239,6 +244,8 @@ class OverlayWindowController(
         assistantTriggeredExpansion = false
         statusBarHidden = false
         fullscreenAutoHidden = false
+        fullscreenTransition = FullscreenCapsulePhase.None
+        fullscreenCapsuleSpring.snapTo(1f)
         mainHandler.removeCallbacks(permissionCheck)
         stateMachine.hide()
         removeView()
@@ -280,7 +287,9 @@ class OverlayWindowController(
 
     /** Returns the capsule proxy bounds for the status-bar edge case. */
     internal fun currentAccessibilityTouchBounds(): IntRect? {
-        if (accessibilityWindow || view == null || fullscreenAutoHidden) return null
+        if (accessibilityWindow || view == null || fullscreenAutoHidden ||
+            fullscreenTransition != FullscreenCapsulePhase.None
+        ) return null
         val safe = safeBounds()
         return if (stateMachine.state == OverlayState.Collapsed) {
             OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
@@ -366,6 +375,8 @@ class OverlayWindowController(
         windowMotion.step(deltaSeconds)
         collapseReboundSpring.step(deltaSeconds)
         collapseSecondaryReboundSpring.step(deltaSeconds)
+        collapseFlightSpring.step(deltaSeconds)
+        fullscreenCapsuleSpring.step(deltaSeconds)
         if (!trackingSwipe) gestureOffsetDp = gestureReturnSpring.value
         // The expensive wave/dots and off-screen glass scene are no longer
         // useful once the finger reaches the fade midpoint. Freeze them while
@@ -378,6 +389,19 @@ class OverlayWindowController(
         if (!collapseEffectsFrozen && stateMachine.state != OverlayState.Collapsed) {
             bands = AmbientBands.smooth(bands, AmbientBands.targetsAt(elapsedSeconds))
             wavePhase = AmbientBands.advanceWavePhase(wavePhase, bands, deltaSeconds)
+        }
+
+        when (fullscreenTransition) {
+            FullscreenCapsulePhase.Hiding -> if (isSettled(fullscreenCapsuleSpring, 0f)) {
+                finishFullscreenHide()
+                return
+            }
+
+            FullscreenCapsulePhase.Showing -> if (isSettled(fullscreenCapsuleSpring, 1f)) {
+                finishFullscreenShow()
+            }
+
+            FullscreenCapsulePhase.None -> Unit
         }
 
         val stateBeforeAnimationSettle = stateMachine.state
@@ -393,9 +417,10 @@ class OverlayWindowController(
             }
 
             OverlayState.Collapsing -> if (
-                isSettled(morphSpring, 0f) &&
+                    isSettled(morphSpring, 0f) &&
                     isSettled(collapseReboundSpring, 0f) &&
                     isSettled(collapseSecondaryReboundSpring, 0f) &&
+                    isSettled(collapseFlightSpring, 0f) &&
                     stateElapsedSeconds > 0.10f
             ) {
                 stateMachine.onAnimationSettled()
@@ -445,6 +470,10 @@ class OverlayWindowController(
         if (renderDue) {
             forceRender = false
             lastRenderSubmitNanos = frameTimeNanos
+            val fullscreenFrame = FullscreenCapsuleMotion.frame(
+                phase = fullscreenTransition,
+                springValue = fullscreenCapsuleSpring.value,
+            )
             val snapshot = RenderSnapshot(
                 config = config,
                 state = stateMachine.state,
@@ -453,6 +482,7 @@ class OverlayWindowController(
                 collapsePull = windowMotion.collapsePull,
                 collapseVelocityDpPerSecond = collapseReleaseVelocityDpPerSecond,
                 collapseDirection = collapseDirection,
+                collapseFlightOffsetPx = collapseFlightSpring.value,
                 collapseRebound = collapseReboundSpring.value,
                 collapseSecondaryRebound = collapseSecondaryReboundSpring.value,
                 collapseEffectsFrozen = collapseEffectsFrozen,
@@ -470,12 +500,16 @@ class OverlayWindowController(
                 presentationToken = presentationToken,
                 capsuleOutline = showDarkCapsuleOutline && isSystemDarkMode() &&
                     stateMachine.state == OverlayState.Collapsed,
+                fullscreenCapsuleScale = fullscreenFrame.scale,
+                fullscreenCapsuleOpacity = fullscreenFrame.opacity,
             )
             updateShapeInputRegion(snapshot)
             textureView.submit(snapshot)
         }
         val pressIsSettled = isSettled(pressSpring, pressSpring.target)
-        if (shouldContinueOverlayFrames(stateMachine.state, pressIsSettled)) {
+        if (shouldContinueOverlayFrames(stateMachine.state, pressIsSettled) ||
+            fullscreenTransition != FullscreenCapsulePhase.None
+        ) {
             postFrame()
         } else {
             // Keep the last opaque capsule buffer on screen without holding a
@@ -673,8 +707,15 @@ class OverlayWindowController(
             secondaryResponse.coerceIn(0.12f, 0.9f),
             if (config.geometry.expandBelowCapsule) 0.78f else 0.82f,
         )
+        collapseFlightSpring.configure(
+            if (config.geometry.expandBelowCapsule) 0.34f else 0.30f,
+            if (config.geometry.expandBelowCapsule) 0.72f else 0.76f,
+        )
         collapseReboundSpring.seed(0f, impulse * directionalBoost, 0f)
         collapseSecondaryReboundSpring.seed(0f, -impulse * 0.42f, 0f)
+        val flightVelocityPxPerSecond = (65f + speedFactor * 180f) *
+            if (config.geometry.expandBelowCapsule) 1.10f else 0.95f
+        collapseFlightSpring.seed(0f, -flightVelocityPxPerSecond, 0f)
     }
 
     /** Uses a slightly longer response so the expand motion reads as one continuous reveal. */
@@ -693,6 +734,7 @@ class OverlayWindowController(
     private fun resetCollapseRebound() {
         collapseReboundSpring.snapTo(0f)
         collapseSecondaryReboundSpring.snapTo(0f)
+        collapseFlightSpring.snapTo(0f)
     }
 
     private fun finishTouch() {
@@ -773,13 +815,17 @@ class OverlayWindowController(
         val target = touchView ?: return
         // The GL host supplies the exact animated shape region while expanded.
         // A rectangular proxy would intercept the transparent circle corners.
-        target.visibility = if (expanded || fullscreenAutoHidden) View.INVISIBLE else View.VISIBLE
+        target.visibility = if (expanded || fullscreenAutoHidden ||
+            fullscreenTransition != FullscreenCapsulePhase.None
+        ) View.INVISIBLE else View.VISIBLE
         val layoutParams = touchParams ?: return
         val safe = safeBounds()
         val bounds = touchBounds(expanded, safe)
         AccessibilityOverlayBridge.updateTouchBounds(
             if (AccessibilityOverlayBridge.isConnected() && !accessibilityWindow) {
-                if (expanded || fullscreenAutoHidden) null else OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
+                if (expanded || fullscreenAutoHidden ||
+                    fullscreenTransition != FullscreenCapsulePhase.None
+                ) null else OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
             } else null,
         )
         if (layoutParams.width == bounds.width && layoutParams.height == bounds.height &&
@@ -817,10 +863,25 @@ class OverlayWindowController(
     private fun updateFullscreenVisibility() {
         val shouldHide = config.geometry.hideWhenStatusBarHidden &&
             statusBarHidden && !systemAssistantWindowVisible
-        if (fullscreenAutoHidden == shouldHide) return
+        val targetPhase = if (shouldHide) {
+            FullscreenCapsulePhase.Hiding
+        } else {
+            FullscreenCapsulePhase.Showing
+        }
+        if (fullscreenAutoHidden == shouldHide && fullscreenTransition == FullscreenCapsulePhase.None) return
+        if (fullscreenAutoHidden == shouldHide && fullscreenTransition == targetPhase) return
         fullscreenAutoHidden = shouldHide
+        fullscreenTransition = targetPhase
+
+        val currentVisibility = fullscreenCapsuleSpring.value.coerceIn(0f, 1f)
 
         if (shouldHide) {
+            fullscreenCapsuleSpring.configure(FULLSCREEN_HIDE_RESPONSE, FULLSCREEN_HIDE_DAMPING)
+            fullscreenCapsuleSpring.seed(
+                currentVisibility,
+                fullscreenCapsuleSpring.velocity.coerceAtMost(0f),
+                0f,
+            )
             mainHandler.removeCallbacks(thinkingTimeout)
             mainHandler.removeCallbacks(autoCollapseTimeout)
             mainHandler.removeCallbacks(assistantCollapseTimeout)
@@ -839,19 +900,48 @@ class OverlayWindowController(
             capsuleTopOffsetDp = 0f
             resetCollapseRebound()
             inputRegion?.update(Region())
-            renderHost?.visibility = View.INVISIBLE
-            backgroundDimView?.visibility = View.INVISIBLE
-            removeFrame()
-        } else {
             renderHost?.visibility = View.VISIBLE
             backgroundDimView?.visibility = View.VISIBLE
             updateBackgroundDim()
-            updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
-            forceRender = true
-            lastRenderSubmitNanos = 0L
-            postFrame()
+        } else {
+            fullscreenCapsuleSpring.configure(FULLSCREEN_SHOW_RESPONSE, FULLSCREEN_SHOW_DAMPING)
+            fullscreenCapsuleSpring.seed(
+                currentVisibility,
+                fullscreenCapsuleSpring.velocity.coerceAtLeast(0f),
+                1f,
+            )
+            renderHost?.visibility = View.VISIBLE
+            backgroundDimView?.visibility = View.VISIBLE
+            updateBackgroundDim()
         }
+        inputRegion?.update(Region())
         updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
+        forceRender = true
+        lastRenderSubmitNanos = 0L
+        postFrame()
+    }
+
+    private fun finishFullscreenHide() {
+        fullscreenCapsuleSpring.snapTo(0f)
+        fullscreenTransition = FullscreenCapsulePhase.None
+        renderHost?.visibility = View.INVISIBLE
+        backgroundDimView?.hideImmediately()
+        backgroundDimView?.visibility = View.INVISIBLE
+        inputRegion?.update(Region())
+        updateTouchBounds(expanded = false)
+        lastFrameNanos = 0L
+        removeFrame()
+    }
+
+    private fun finishFullscreenShow() {
+        fullscreenCapsuleSpring.snapTo(1f)
+        fullscreenTransition = FullscreenCapsulePhase.None
+        renderHost?.visibility = View.VISIBLE
+        backgroundDimView?.visibility = View.VISIBLE
+        updateBackgroundDim()
+        updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
+        forceRender = true
+        lastRenderSubmitNanos = 0L
     }
 
     private fun isStatusBarVisible(): Boolean {
@@ -866,6 +956,10 @@ class OverlayWindowController(
 
     private fun updateShapeInputRegion(snapshot: RenderSnapshot) {
         val canvas = params ?: return
+        if (fullscreenAutoHidden || fullscreenTransition != FullscreenCapsulePhase.None) {
+            inputRegion?.update(Region())
+            return
+        }
         if (snapshot.state == OverlayState.Collapsing && snapshot.collapseEffectsFrozen) {
             // The user cannot meaningfully interact with the orb while it is
             // closing. Keep the last region and avoid rebuilding a Path/Region
@@ -1134,6 +1228,10 @@ class OverlayWindowController(
     private companion object {
         const val PERMISSION_CHECK_INTERVAL_MS = 15_000L
         const val STATUS_BAR_VISIBILITY_CHECK_MS = 200L
+        const val FULLSCREEN_HIDE_RESPONSE = 0.34f
+        const val FULLSCREEN_HIDE_DAMPING = 1f
+        const val FULLSCREEN_SHOW_RESPONSE = 0.42f
+        const val FULLSCREEN_SHOW_DAMPING = 0.64f
         const val ASSISTANT_COLLAPSE_DELAY_MS = 420L
     }
 }

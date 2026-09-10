@@ -40,6 +40,13 @@ internal data class ShapeFrame(
             val directionalReboundPx = snapshot.collapseDirection.coerceIn(-1, 1) *
                 (if (config.geometry.expandBelowCapsule) 6f else 3f) * reboundSignal *
                 (1f + speedFactor * 0.7f)
+            val collapseProgress = 1f - morph.coerceIn(0f, 1f)
+            val flightGate = smoothstep(0.34f, 0.90f, collapseProgress)
+            val collapseFlightOffsetPx = if (snapshot.state == OverlayState.Collapsing) {
+                snapshot.collapseFlightOffsetPx * flightGate
+            } else {
+                0f
+            }
             val reboundWidthScale = 1f + abs(reboundSignal) *
                 if (config.geometry.expandBelowCapsule) 0.045f else 0.022f
             val reboundHeightScale = 1f - abs(reboundSignal) *
@@ -71,16 +78,34 @@ internal data class ShapeFrame(
             val top = if (snapshot.preview) (height / density - preview.heightDp * scale) * 0.5f
                 else (snapshot.capsuleTopOffsetDp * displayDensity + dropPx + reboundOffsetPx) / density
             val shape = ShapeMetrics.interpolate(config.geometry, top, center, morph, snapshot.deformation)
+            val fullscreenScale = if (snapshot.state == OverlayState.Collapsed) {
+                snapshot.fullscreenCapsuleScale.coerceIn(0.08f, 1.16f)
+            } else {
+                1f
+            }
+            val fullscreenOpacity = if (snapshot.state == OverlayState.Collapsed) {
+                snapshot.fullscreenCapsuleOpacity.coerceIn(0f, 1f)
+            } else {
+                1f
+            }
+            val baseHeightPx = shape.heightDp * density * scale
             return ShapeFrame(
                 morph, density, scale,
-                shape.widthDp * density * scale,
-                shape.heightDp * density * scale * reboundHeightScale,
-                shape.topDp * density,
+                shape.widthDp * density * scale * fullscreenScale,
+                shape.heightDp * density * scale * reboundHeightScale * fullscreenScale,
+                shape.topDp * density + collapseFlightOffsetPx / density +
+                    (baseHeightPx - baseHeightPx * fullscreenScale) * 0.5f,
                 shape.centerXDp * density,
-                glassContentOpacity,
+                glassContentOpacity * fullscreenOpacity,
             ).let { frame ->
                 frame.copy(shapeWidth = frame.shapeWidth * reboundWidthScale)
             }
+        }
+
+        private fun smoothstep(edge0: Float, edge1: Float, value: Float): Float {
+            val span = (edge1 - edge0).coerceAtLeast(0.0001f)
+            val t = ((value - edge0) / span).coerceIn(0f, 1f)
+            return t * t * (3f - 2f * t)
         }
 
     }

@@ -27,6 +27,7 @@ data class RenderSnapshot(
     val collapsePull: Float = 0f,
     val collapseVelocityDpPerSecond: Float = 0f,
     val collapseDirection: Int = 0,
+    val collapseFlightOffsetPx: Float = 0f,
     val collapseRebound: Float = 0f,
     val collapseSecondaryRebound: Float = 0f,
     val collapseEffectsFrozen: Boolean = false,
@@ -44,4 +45,6 @@ data class RenderSnapshot(
     val viewportHeight: Int = 0,
     val presentationToken: Long = 0L,
     val capsuleOutline: Boolean = false,
+    val fullscreenCapsuleScale: Float = 1f,
+    val fullscreenCapsuleOpacity: Float = 1f,
 )

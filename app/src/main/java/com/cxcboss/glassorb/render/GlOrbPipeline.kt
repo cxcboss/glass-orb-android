@@ -153,6 +153,10 @@ internal class GlOrbPipeline(
         glassProgram.float("uGlassContentOpacity", frame.glassContentOpacity)
         glassProgram.float("uCollapsed", if (snapshot.state == OverlayState.Collapsed) 1f else 0f)
         glassProgram.float("uCapsuleOutline", if (snapshot.capsuleOutline) 1f else 0f)
+        glassProgram.float(
+            "uCapsuleOpacity",
+            if (snapshot.state == OverlayState.Collapsed) snapshot.fullscreenCapsuleOpacity else 1f,
+        )
         glassProgram.float("uHeight", config.glass.internalDepth * density)
         glassProgram.float("uCurvature", config.glass.curvature)
         glassProgram.float("uRefractAmount", -56f * density)
