@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Only the known assistant package is observed. The service reports window
-     lifecycle changes and never reads text, screenshots, gestures, or audio. -->
+<!-- TYPE_WINDOWS_CHANGED is a system window event. Android only delivers it
+     when the service opts into interactive-window metadata. The implementation
+     reads only the root package name for a small allowlist; it never traverses
+     text, takes screenshots, performs gestures, or records audio. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/accessibility_service_description"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:packageNames="com.heytap.speechassist"
     android:notificationTimeout="100"
-    android:canRetrieveWindowContent="false"
+    android:canRetrieveWindowContent="true"
     android:canRequestFilterKeyEvents="false"
     android:canPerformGestures="false"
     android:canRequestTouchExplorationMode="false"

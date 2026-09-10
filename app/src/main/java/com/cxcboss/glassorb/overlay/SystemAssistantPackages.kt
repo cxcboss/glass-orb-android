@@ -11,6 +11,13 @@ internal object SystemAssistantPackages {
     private val supportedPackages = setOf(
         // OPPO ColorOS 16 voice assistant observed on the connected device.
         "com.heytap.speechassist",
+        // Xiaomi XiaoAI package used by MIUI/HyperOS phone builds.
+        "com.miui.voiceassist",
+        "com.xiaomi.voiceassistant",
+        // vivo Jovi package variants seen across Funtouch/OriginOS builds.
+        "com.vivo.assistant",
+        "com.vivo.vassistant",
+        "com.vivo.jovi",
     )
 
     fun isSupported(packageName: String): Boolean = packageName in supportedPackages

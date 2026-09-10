@@ -201,6 +201,10 @@ class OverlayWindowController(
             forceRender = true
             updateBackgroundDim()
             postFrame()
+            // The accessibility service can observe the assistant before the
+            // overlay view is created. Replay that state now so the first
+            // visible assistant window is not lost during startup.
+            AccessibilityOverlayBridge.replayAssistantWindowState()
             schedulePermissionCheck()
             true
         } catch (error: Throwable) {

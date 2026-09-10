@@ -22,6 +22,7 @@ internal object AccessibilityOverlayBridge {
     private var boundsProvider: (() -> IntRect?)? = null
     private var connectionChanged: (() -> Unit)? = null
     private var assistantWindowChanged: ((SystemAssistantWindowEvent) -> Unit)? = null
+    private var lastAssistantWindowEvent: SystemAssistantWindowEvent? = null
 
     @Synchronized
     fun attachController(
@@ -39,6 +40,9 @@ internal object AccessibilityOverlayBridge {
                 .onFailure { /* The service must remain alive if a window is rebuilding. */ }
         }
         runCatching { onConnectionChanged() }
+        lastAssistantWindowEvent
+            ?.takeIf { it.visible }
+            ?.let { pending -> runCatching { onAssistantWindowChanged(pending) } }
     }
 
     @Synchronized
@@ -61,6 +65,7 @@ internal object AccessibilityOverlayBridge {
     fun disconnect(accessibilityService: GlassOrbAccessibilityService) {
         if (service === accessibilityService) {
             service = null
+            lastAssistantWindowEvent = null
             runCatching { connectionChanged?.invoke() }
         }
     }
@@ -82,6 +87,15 @@ internal object AccessibilityOverlayBridge {
 
     @Synchronized
     fun notifyAssistantWindowChanged(event: SystemAssistantWindowEvent) {
+        lastAssistantWindowEvent = event
         runCatching { assistantWindowChanged?.invoke(event) }
+    }
+
+    /** Replays a currently visible assistant after the overlay has created its view. */
+    @Synchronized
+    fun replayAssistantWindowState() {
+        lastAssistantWindowEvent
+            ?.takeIf { it.visible }
+            ?.let { pending -> runCatching { assistantWindowChanged?.invoke(pending) } }
     }
 }
