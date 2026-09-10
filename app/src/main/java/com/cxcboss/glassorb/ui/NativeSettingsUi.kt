@@ -313,7 +313,7 @@ internal class NativeSettingsController(
             addNavigationRow(this, "运行与权限", if (overlayPermission) "悬浮窗权限已开启" else "需要悬浮窗权限") { navigate("overlay") }
         }
         section(content, "外观与位置") {
-            addNavigationRow(this, "尺寸、位置与触控", "胶囊、玻璃球、向下展开与触控范围") { navigate(ConfigGroup.Geometry) }
+            addNavigationRow(this, "尺寸、位置与触控", "横屏位置、胶囊、玻璃球与触控范围") { navigate(ConfigGroup.Geometry) }
             addNavigationRow(this, "背景与暗部", "屏幕压暗、暗部强度与渐变") { navigate(ConfigGroup.Container) }
             addNavigationRow(this, "玻璃质感", "高光、折射与投影") { navigate(ConfigGroup.Glass) }
             addNavigationRow(this, "波形效果", "颜色、线条与亮度") { navigate(ConfigGroup.Wave) }
@@ -430,6 +430,14 @@ internal class NativeSettingsController(
         addSubheading(content, "玻璃球")
         addSwitchRow(content, "向下展开", "展开后球体顶部位于胶囊底部下方 20 px", config.geometry.expandBelowCapsule) { enabled ->
             updateConfig { it.copy(geometry = it.geometry.copy(expandBelowCapsule = enabled)) }
+        }
+        addSwitchRow(
+            content,
+            "全屏时隐藏胶囊",
+            "状态栏隐藏时隐藏胶囊和触控入口，系统语音助手唤醒时仍显示玻璃球",
+            config.geometry.hideWhenStatusBarHidden,
+        ) { enabled ->
+            updateConfig { it.copy(geometry = it.geometry.copy(hideWhenStatusBarHidden = enabled)) }
         }
         addSlider(content, "球体直径", config.geometry.orbDiameterDp, OrbConfig.reference().geometry.orbDiameterDp, 88f..220f, "dp") { value ->
             updateConfig { current -> current.copy(geometry = current.geometry.copy(orbDiameterDp = value)) }

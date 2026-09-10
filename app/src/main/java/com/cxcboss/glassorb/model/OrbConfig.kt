@@ -20,6 +20,7 @@ data class GeometryConfig(
     val enlargedTouchArea: Boolean = false,
     val touchAreaScale: Float = 1.35f,
     val expandBelowCapsule: Boolean = false,
+    val hideWhenStatusBarHidden: Boolean = true,
 )
 
 data class GlassConfig(

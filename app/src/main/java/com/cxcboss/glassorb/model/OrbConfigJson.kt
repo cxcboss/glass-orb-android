@@ -19,6 +19,7 @@ object OrbConfigJson {
                 put("enlargedTouchArea", value.geometry.enlargedTouchArea)
                 put("touchAreaScale", value.geometry.touchAreaScale)
                 put("expandBelowCapsule", value.geometry.expandBelowCapsule)
+                put("hideWhenStatusBarHidden", value.geometry.hideWhenStatusBarHidden)
             })
             put("glass", JSONObject().apply {
                 put("internalDepth", value.glass.internalDepth)
@@ -110,6 +111,7 @@ object OrbConfigJson {
                 enlargedTouchArea = geometry.boolean("enlargedTouchArea", defaults.geometry.enlargedTouchArea),
                 touchAreaScale = geometry.float("touchAreaScale", defaults.geometry.touchAreaScale),
                 expandBelowCapsule = geometry.boolean("expandBelowCapsule", defaults.geometry.expandBelowCapsule),
+                hideWhenStatusBarHidden = geometry.boolean("hideWhenStatusBarHidden", defaults.geometry.hideWhenStatusBarHidden),
             ),
             glass = defaults.glass.copy(
                 internalDepth = glass.float("internalDepth", defaults.glass.internalDepth),

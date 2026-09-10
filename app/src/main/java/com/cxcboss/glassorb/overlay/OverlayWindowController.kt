@@ -85,6 +85,8 @@ class OverlayWindowController(
     private var collapseDirection = 0
     private var systemAssistantWindowVisible = false
     private var assistantTriggeredExpansion = false
+    private var statusBarHidden = false
+    private var fullscreenAutoHidden = false
     private val thinkingTimeout = Runnable {
         stateMachine.onThinkingTimeout()
         thinkingSpring.target = 0f
@@ -120,6 +122,14 @@ class OverlayWindowController(
                 return
             }
             mainHandler.postDelayed(this, PERMISSION_CHECK_INTERVAL_MS)
+        }
+    }
+
+    private val statusBarVisibilityCheck = object : Runnable {
+        override fun run() {
+            if (view == null || !screenOn || !config.geometry.hideWhenStatusBarHidden) return
+            updateStatusBarHidden(!isStatusBarVisible())
+            mainHandler.postDelayed(this, STATUS_BAR_VISIBILITY_CHECK_MS)
         }
     }
 
@@ -205,6 +215,7 @@ class OverlayWindowController(
             // overlay view is created. Replay that state now so the first
             // visible assistant window is not lost during startup.
             AccessibilityOverlayBridge.replayAssistantWindowState()
+            updateStatusBarVisibilityMonitor()
             schedulePermissionCheck()
             true
         } catch (error: Throwable) {
@@ -223,8 +234,11 @@ class OverlayWindowController(
         mainHandler.removeCallbacks(thinkingTimeout)
         mainHandler.removeCallbacks(autoCollapseTimeout)
         mainHandler.removeCallbacks(assistantCollapseTimeout)
+        mainHandler.removeCallbacks(statusBarVisibilityCheck)
         systemAssistantWindowVisible = false
         assistantTriggeredExpansion = false
+        statusBarHidden = false
+        fullscreenAutoHidden = false
         mainHandler.removeCallbacks(permissionCheck)
         stateMachine.hide()
         removeView()
@@ -248,12 +262,14 @@ class OverlayWindowController(
         mainHandler.post {
             if (event.visible) {
                 systemAssistantWindowVisible = true
+                updateFullscreenVisibility()
                 mainHandler.removeCallbacks(assistantCollapseTimeout)
                 if (view != null && stateMachine.state == OverlayState.Collapsed) {
                     beginExpand(triggeredBySystemAssistant = true)
                 }
             } else {
                 systemAssistantWindowVisible = false
+                updateFullscreenVisibility()
                 if (assistantTriggeredExpansion) {
                     mainHandler.removeCallbacks(assistantCollapseTimeout)
                     mainHandler.postDelayed(assistantCollapseTimeout, ASSISTANT_COLLAPSE_DELAY_MS)
@@ -264,7 +280,7 @@ class OverlayWindowController(
 
     /** Returns the capsule proxy bounds for the status-bar edge case. */
     internal fun currentAccessibilityTouchBounds(): IntRect? {
-        if (accessibilityWindow || view == null) return null
+        if (accessibilityWindow || view == null || fullscreenAutoHidden) return null
         val safe = safeBounds()
         return if (stateMachine.state == OverlayState.Collapsed) {
             OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
@@ -286,10 +302,12 @@ class OverlayWindowController(
         if (screenOn) {
             lastFrameNanos = 0L
             postFrame()
+            updateStatusBarVisibilityMonitor()
             schedulePermissionCheck()
         } else {
             removeFrame()
             mainHandler.removeCallbacks(permissionCheck)
+            mainHandler.removeCallbacks(statusBarVisibilityCheck)
         }
     }
 
@@ -299,6 +317,7 @@ class OverlayWindowController(
         updateBounds()
         updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
         updateBackgroundDim()
+        updateStatusBarVisibilityMonitor()
         if (stateMachine.state == OverlayState.Wave) scheduleAutoCollapse()
         forceRender = true
         postFrame()
@@ -308,6 +327,7 @@ class OverlayWindowController(
         updateBounds()
         updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
         updateBackgroundDim()
+        updateStatusBarVisibilityMonitor()
         forceRender = true
         postFrame()
     }
@@ -753,13 +773,13 @@ class OverlayWindowController(
         val target = touchView ?: return
         // The GL host supplies the exact animated shape region while expanded.
         // A rectangular proxy would intercept the transparent circle corners.
-        target.visibility = if (expanded) View.INVISIBLE else View.VISIBLE
+        target.visibility = if (expanded || fullscreenAutoHidden) View.INVISIBLE else View.VISIBLE
         val layoutParams = touchParams ?: return
         val safe = safeBounds()
         val bounds = touchBounds(expanded, safe)
         AccessibilityOverlayBridge.updateTouchBounds(
             if (AccessibilityOverlayBridge.isConnected() && !accessibilityWindow) {
-                if (expanded) null else OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
+                if (expanded || fullscreenAutoHidden) null else OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
             } else null,
         )
         if (layoutParams.width == bounds.width && layoutParams.height == bounds.height &&
@@ -770,6 +790,78 @@ class OverlayWindowController(
         layoutParams.y = bounds.top
         runCatching { windowManager.updateViewLayout(target, layoutParams) }
             .onFailure { onFatalError(it.message ?: "无法更新触摸区域") }
+    }
+
+    private fun updateStatusBarVisibilityMonitor() {
+        mainHandler.removeCallbacks(statusBarVisibilityCheck)
+        if (view == null || !screenOn) return
+        if (!config.geometry.hideWhenStatusBarHidden) {
+            updateStatusBarHidden(false)
+            return
+        }
+        updateStatusBarHidden(!isStatusBarVisible())
+        mainHandler.postDelayed(statusBarVisibilityCheck, STATUS_BAR_VISIBILITY_CHECK_MS)
+    }
+
+    private fun updateStatusBarHidden(hidden: Boolean) {
+        if (statusBarHidden == hidden) return
+        statusBarHidden = hidden
+        updateFullscreenVisibility()
+    }
+
+    /**
+     * Auto-hiding is a visibility/input policy, not a service lifecycle change.
+     * Keep the overlay service alive so a system assistant can immediately
+     * reveal the orb even while the foreground app is immersive fullscreen.
+     */
+    private fun updateFullscreenVisibility() {
+        val shouldHide = config.geometry.hideWhenStatusBarHidden &&
+            statusBarHidden && !systemAssistantWindowVisible
+        if (fullscreenAutoHidden == shouldHide) return
+        fullscreenAutoHidden = shouldHide
+
+        if (shouldHide) {
+            mainHandler.removeCallbacks(thinkingTimeout)
+            mainHandler.removeCallbacks(autoCollapseTimeout)
+            mainHandler.removeCallbacks(assistantCollapseTimeout)
+            assistantTriggeredExpansion = false
+            trackingSwipe = false
+            velocityTracker?.recycle()
+            velocityTracker = null
+            windowMotion.cancelGesture()
+            stateMachine.showCollapsed()
+            morphSpring.snapTo(0f)
+            thinkingSpring.snapTo(0f)
+            pressSpring.snapTo(0f)
+            gestureReturnSpring.snapTo(0f)
+            gestureOffsetDp = 0f
+            capsuleCenterOffsetDp = 0f
+            capsuleTopOffsetDp = 0f
+            resetCollapseRebound()
+            inputRegion?.update(Region())
+            renderHost?.visibility = View.INVISIBLE
+            backgroundDimView?.visibility = View.INVISIBLE
+            removeFrame()
+        } else {
+            renderHost?.visibility = View.VISIBLE
+            backgroundDimView?.visibility = View.VISIBLE
+            updateBackgroundDim()
+            updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
+            forceRender = true
+            lastRenderSubmitNanos = 0L
+            postFrame()
+        }
+        updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
+    }
+
+    private fun isStatusBarVisible(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return windowManager.currentWindowMetrics.windowInsets.isVisible(
+                WindowInsets.Type.statusBars(),
+            )
+        }
+        @Suppress("DEPRECATION")
+        return view?.rootWindowInsets?.systemWindowInsetTop?.let { it > 0 } ?: true
     }
 
     private fun updateShapeInputRegion(snapshot: RenderSnapshot) {
@@ -802,10 +894,15 @@ class OverlayWindowController(
             val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
                 WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
             )
+            val landscape = context.resources.configuration.orientation ==
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
             IntRect(
-                left = bounds.left + insets.left,
+                // In landscape the navigation/status insets can be attached
+                // to a side. Do not let them move the top island away from
+                // the same display-relative anchor used in portrait.
+                left = if (landscape) bounds.left else bounds.left + insets.left,
                 top = bounds.top,
-                right = bounds.right - insets.right,
+                right = if (landscape) bounds.right else bounds.right - insets.right,
                 bottom = bounds.bottom - insets.bottom,
             )
         } else {
@@ -1036,6 +1133,7 @@ class OverlayWindowController(
 
     private companion object {
         const val PERMISSION_CHECK_INTERVAL_MS = 15_000L
+        const val STATUS_BAR_VISIBILITY_CHECK_MS = 200L
         const val ASSISTANT_COLLAPSE_DELAY_MS = 420L
     }
 }
