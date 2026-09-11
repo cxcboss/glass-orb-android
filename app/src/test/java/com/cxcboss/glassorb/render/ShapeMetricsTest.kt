@@ -10,6 +10,8 @@ class ShapeMetricsTest {
         capsuleWidthDp = 118f,
         capsuleHeightDp = 34f,
         orbDiameterDp = 128f,
+        orbWidthDp = 160f,
+        orbHeightDp = 96f,
     )
 
     @Test
@@ -110,5 +112,19 @@ class ShapeMetricsTest {
         assertEquals(extended.widthDp, aboveRange.widthDp, 0.0001f)
         assertEquals(extended.heightDp, aboveRange.heightDp, 0.0001f)
         assertEquals(extended.centerXDp, aboveRange.centerXDp, 0.0001f)
+    }
+
+    @Test
+    fun `expanded shape uses independent orb width and height`() {
+        val shape = ShapeMetrics.interpolate(
+            geometry = geometry,
+            anchorTopDp = 0f,
+            anchorCenterXDp = 80f,
+            morph = 1f,
+            deformation = DragDeformation(0f, 0f, 1f, 1f, 0f),
+        )
+
+        assertEquals(160f, shape.widthDp, 0f)
+        assertEquals(96f, shape.heightDp, 0f)
     }
 }

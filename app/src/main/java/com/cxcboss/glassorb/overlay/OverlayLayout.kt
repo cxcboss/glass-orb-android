@@ -19,22 +19,22 @@ object OverlayLayout {
     const val WINDOW_TOP_PADDING_DP = 0f
 
     /**
-     * Selects the display-safe rectangle without changing the existing
-     * portrait/top-anchor convention. Rotation-following is opt-in: with it
-     * disabled, landscape side insets are ignored so the island keeps the
-     * same display-relative horizontal anchor, size and top offset.
+     * Selects the display-safe rectangle while keeping the island in its
+     * portrait/top-anchor coordinate convention. Android reports window
+     * bounds in the current display rotation; in landscape the navigation
+     * inset is on a physical side, but it must not become the island's new
+     * horizontal origin. The island therefore uses the full rotated display
+     * width and only reserves the bottom system inset.
      */
     fun safeBoundsForDisplay(
         displayBounds: IntRect,
         systemInsets: IntRect,
         landscape: Boolean,
-        followScreenRotation: Boolean,
     ): IntRect {
-        val lockedLandscape = landscape && !followScreenRotation
         return IntRect(
-            left = if (lockedLandscape) displayBounds.left else displayBounds.left + systemInsets.left,
+            left = if (landscape) displayBounds.left else displayBounds.left + systemInsets.left,
             top = displayBounds.top,
-            right = if (lockedLandscape) displayBounds.right else displayBounds.right - systemInsets.right,
+            right = if (landscape) displayBounds.right else displayBounds.right - systemInsets.right,
             bottom = displayBounds.bottom - systemInsets.bottom,
         )
     }
@@ -72,8 +72,8 @@ object OverlayLayout {
 
     fun orbTouchBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect =
         placedBounds(
-            geometry.orbDiameterDp.dpToPx(density),
-            geometry.orbDiameterDp.dpToPx(density),
+            geometry.orbWidthDp.dpToPx(density),
+            geometry.orbHeightDp.dpToPx(density),
             geometry, safeBoundsPx, density,
         )
 
@@ -126,15 +126,17 @@ object OverlayLayout {
         val orbTopPx = capsule.top + capsuleVisualHeightPx +
             if (geometry.expandBelowCapsule) EXPAND_BELOW_GAP_PX.roundToInt() else 0
         val orbExtentDp = maxOf(
-            geometry.orbDiameterDp,
-            geometry.orbDiameterDp * geometry.effectScale,
+            geometry.orbWidthDp,
+            geometry.orbHeightDp,
+            geometry.orbWidthDp * geometry.effectScale,
+            geometry.orbHeightDp * geometry.effectScale,
         ) + geometry.outerMarginDp
         return orbTopPx + orbExtentDp.dpToPx(density)
     }
 
     fun expandedCanvasDp(geometry: GeometryConfig): Float = maxOf(
-        geometry.orbDiameterDp * geometry.effectScale,
-        maxOf(geometry.orbDiameterDp, geometry.capsuleWidthDp, geometry.capsuleHeightDp) * 1.28f,
+        maxOf(geometry.orbWidthDp, geometry.orbHeightDp) * geometry.effectScale,
+        maxOf(geometry.orbWidthDp, geometry.orbHeightDp, geometry.capsuleWidthDp, geometry.capsuleHeightDp) * 1.28f,
     ) + geometry.outerMarginDp * 2f
 
     fun renderScale(geometry: GeometryConfig, width: Int, height: Int, density: Float, morph: Float): Float {

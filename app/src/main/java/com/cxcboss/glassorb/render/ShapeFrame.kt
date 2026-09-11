@@ -89,17 +89,46 @@ internal data class ShapeFrame(
                 1f
             }
             val baseHeightPx = shape.heightDp * density * scale
+            val baseWidthPx = shape.widthDp * density * scale * reboundWidthScale
+            val adjustedBaseHeightPx = baseHeightPx * reboundHeightScale
+            val squareProgress = if (snapshot.state == OverlayState.Collapsed) {
+                snapshot.fullscreenCapsuleSquareProgress.coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            // Fullscreen/landscape hiding first turns the capsule into a
+            // square by compressing only its dominant axis. It then scales
+            // that square down uniformly. Reversing these factors on reveal
+            // avoids the old stretched-rectangle-to-zero effect.
+            val dominantAxisRatio = when {
+                baseWidthPx > adjustedBaseHeightPx ->
+                    (adjustedBaseHeightPx / baseWidthPx).coerceIn(0f, 1f)
+                adjustedBaseHeightPx > baseWidthPx ->
+                    (baseWidthPx / adjustedBaseHeightPx).coerceIn(0f, 1f)
+                else -> 1f
+            }
+            val axisScaleX = if (baseWidthPx > adjustedBaseHeightPx) {
+                lerp(1f, dominantAxisRatio, squareProgress)
+            } else {
+                1f
+            }
+            val axisScaleY = if (adjustedBaseHeightPx > baseWidthPx) {
+                lerp(1f, dominantAxisRatio, squareProgress)
+            } else {
+                1f
+            }
+            val visibleScale = fullscreenScale
+            val finalWidthPx = baseWidthPx * visibleScale * axisScaleX
+            val finalHeightPx = adjustedBaseHeightPx * visibleScale * axisScaleY
             return ShapeFrame(
                 morph, density, scale,
-                shape.widthDp * density * scale * fullscreenScale,
-                shape.heightDp * density * scale * reboundHeightScale * fullscreenScale,
+                finalWidthPx,
+                finalHeightPx,
                 shape.topDp * density + collapseFlightOffsetPx / density +
-                    (baseHeightPx - baseHeightPx * fullscreenScale) * 0.5f,
+                    (adjustedBaseHeightPx - finalHeightPx) * 0.5f,
                 shape.centerXDp * density,
                 glassContentOpacity * fullscreenOpacity,
-            ).let { frame ->
-                frame.copy(shapeWidth = frame.shapeWidth * reboundWidthScale)
-            }
+            )
         }
 
         private fun smoothstep(edge0: Float, edge1: Float, value: Float): Float {
@@ -107,6 +136,9 @@ internal data class ShapeFrame(
             val t = ((value - edge0) / span).coerceIn(0f, 1f)
             return t * t * (3f - 2f * t)
         }
+
+        private fun lerp(start: Float, end: Float, fraction: Float): Float =
+            start + (end - start) * fraction
 
     }
 }

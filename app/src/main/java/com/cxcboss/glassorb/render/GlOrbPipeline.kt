@@ -70,7 +70,8 @@ internal class GlOrbPipeline(
         val topPad = frame.top
         val centerX = frame.centerX
         val centerY = frame.centerY
-        val effectSize = config.geometry.orbDiameterDp * config.geometry.effectScale * density * visualScale
+        val effectSize = maxOf(config.geometry.orbWidthDp, config.geometry.orbHeightDp) *
+            config.geometry.effectScale * density * visualScale
         val weights = RenderTransition.weights(snapshot.thinkingProgress)
         val orbVisibility = smoothstep(0.08f, 0.72f, morph)
         val waveDelay = config.motion.waveFadeDelayMs / 1_000f

@@ -12,7 +12,9 @@ class OrbConfigTest {
         assertEquals(118f, config.geometry.capsuleWidthDp, 0f)
         assertEquals(34f, config.geometry.capsuleHeightDp, 0f)
         assertEquals(128f, config.geometry.orbDiameterDp, 0f)
-        assertEquals(false, config.geometry.followScreenRotation)
+        assertEquals(128f, config.geometry.orbWidthDp, 0f)
+        assertEquals(128f, config.geometry.orbHeightDp, 0f)
+        assertEquals(false, config.geometry.hideWhenLandscape)
         assertEquals(0.72f, config.glass.highlightAmount, 0f)
         assertEquals(0f, config.glass.internalHueDegrees, 0f)
         assertEquals(210f, config.glass.upperHighlightHueDegrees, 0f)
@@ -43,6 +45,8 @@ class OrbConfigTest {
                 capsuleWidthDp = -40f,
                 capsuleHeightDp = 500f,
                 orbDiameterDp = 170f,
+                orbWidthDp = 400f,
+                orbHeightDp = -2f,
                 verticalOffsetDp = -4f,
             ),
             glass = OrbConfig.reference().glass.copy(curvature = 5f),
@@ -60,6 +64,8 @@ class OrbConfigTest {
         assertEquals(0f, config.geometry.capsuleWidthDp, 0f)
         assertEquals(64f, config.geometry.capsuleHeightDp, 0f)
         assertEquals(170f, config.geometry.orbDiameterDp, 0f)
+        assertEquals(260f, config.geometry.orbWidthDp, 0f)
+        assertEquals(88f, config.geometry.orbHeightDp, 0f)
         assertEquals(0f, config.geometry.verticalOffsetDp, 0f)
         assertEquals(1f, config.glass.curvature, 0f)
         assertEquals(24f, config.motion.collapseRangeDp, 0f)
@@ -84,7 +90,12 @@ class OrbConfigTest {
     @Test
     fun `json round trip keeps a customized snapshot`() {
         val original = OrbConfig.bright().copy(
-            geometry = OrbConfig.bright().geometry.copy(horizontalOffsetDp = 42f),
+            geometry = OrbConfig.bright().geometry.copy(
+                horizontalOffsetDp = 42f,
+                orbWidthDp = 156f,
+                orbHeightDp = 104f,
+                hideWhenLandscape = true,
+            ),
             glass = OrbConfig.bright().glass.copy(
                 internalHueDegrees = 135f,
                 upperHighlightHueDegrees = 278f,
@@ -106,6 +117,17 @@ class OrbConfigTest {
         val restored = OrbConfigJson.decode(OrbConfigJson.encode(original)).getOrThrow()
 
         assertEquals(original, restored)
+    }
+
+    @Test
+    fun `legacy json diameter is used for both new orb axes`() {
+        val restored = OrbConfigJson.decode(
+            """{"geometry":{"orbDiameterDp":176}}""",
+        ).getOrThrow()
+
+        assertEquals(176f, restored.geometry.orbDiameterDp, 0f)
+        assertEquals(176f, restored.geometry.orbWidthDp, 0f)
+        assertEquals(176f, restored.geometry.orbHeightDp, 0f)
     }
 
     @Test

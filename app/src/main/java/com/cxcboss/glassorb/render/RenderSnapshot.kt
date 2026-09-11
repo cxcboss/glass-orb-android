@@ -46,5 +46,6 @@ data class RenderSnapshot(
     val presentationToken: Long = 0L,
     val capsuleOutline: Boolean = false,
     val fullscreenCapsuleScale: Float = 1f,
+    val fullscreenCapsuleSquareProgress: Float = 0f,
     val fullscreenCapsuleOpacity: Float = 1f,
 )

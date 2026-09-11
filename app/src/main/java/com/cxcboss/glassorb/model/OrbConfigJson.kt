@@ -11,6 +11,8 @@ object OrbConfigJson {
                 put("capsuleWidthDp", value.geometry.capsuleWidthDp)
                 put("capsuleHeightDp", value.geometry.capsuleHeightDp)
                 put("orbDiameterDp", value.geometry.orbDiameterDp)
+                put("orbWidthDp", value.geometry.orbWidthDp)
+                put("orbHeightDp", value.geometry.orbHeightDp)
                 put("outerMarginDp", value.geometry.outerMarginDp)
                 put("effectScale", value.geometry.effectScale)
                 put("verticalOffsetDp", value.geometry.verticalOffsetDp)
@@ -20,7 +22,7 @@ object OrbConfigJson {
                 put("touchAreaScale", value.geometry.touchAreaScale)
                 put("expandBelowCapsule", value.geometry.expandBelowCapsule)
                 put("hideWhenStatusBarHidden", value.geometry.hideWhenStatusBarHidden)
-                put("followScreenRotation", value.geometry.followScreenRotation)
+                put("hideWhenLandscape", value.geometry.hideWhenLandscape)
             })
             put("glass", JSONObject().apply {
                 put("internalDepth", value.glass.internalDepth)
@@ -100,13 +102,18 @@ object OrbConfigJson {
         val dots = root.optJSONObject("dots")
         val motion = root.optJSONObject("motion")
         val performance = root.optJSONObject("performance")
+        val legacyOrbDiameterDp = geometry.float("orbDiameterDp", defaults.geometry.orbDiameterDp)
 
         OrbConfig(
             schemaVersion = root.int("schemaVersion", defaults.schemaVersion),
             geometry = defaults.geometry.copy(
                 capsuleWidthDp = geometry.float("capsuleWidthDp", defaults.geometry.capsuleWidthDp),
                 capsuleHeightDp = geometry.float("capsuleHeightDp", defaults.geometry.capsuleHeightDp),
-                orbDiameterDp = geometry.float("orbDiameterDp", defaults.geometry.orbDiameterDp),
+                orbDiameterDp = legacyOrbDiameterDp,
+                // Older exports only had a diameter. Treat it as both axes so
+                // importing a saved preset preserves its visible orb size.
+                orbWidthDp = geometry.float("orbWidthDp", legacyOrbDiameterDp),
+                orbHeightDp = geometry.float("orbHeightDp", legacyOrbDiameterDp),
                 outerMarginDp = geometry.float("outerMarginDp", defaults.geometry.outerMarginDp),
                 effectScale = geometry.float("effectScale", defaults.geometry.effectScale),
                 verticalOffsetDp = geometry.float("verticalOffsetDp", defaults.geometry.verticalOffsetDp),
@@ -116,7 +123,7 @@ object OrbConfigJson {
                 touchAreaScale = geometry.float("touchAreaScale", defaults.geometry.touchAreaScale),
                 expandBelowCapsule = geometry.boolean("expandBelowCapsule", defaults.geometry.expandBelowCapsule),
                 hideWhenStatusBarHidden = geometry.boolean("hideWhenStatusBarHidden", defaults.geometry.hideWhenStatusBarHidden),
-                followScreenRotation = geometry.boolean("followScreenRotation", defaults.geometry.followScreenRotation),
+                hideWhenLandscape = geometry.boolean("hideWhenLandscape", defaults.geometry.hideWhenLandscape),
             ),
             glass = defaults.glass.copy(
                 internalDepth = glass.float("internalDepth", defaults.glass.internalDepth),

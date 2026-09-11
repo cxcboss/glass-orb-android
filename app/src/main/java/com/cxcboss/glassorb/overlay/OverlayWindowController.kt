@@ -327,6 +327,7 @@ class OverlayWindowController(
         updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
         updateBackgroundDim()
         updateStatusBarVisibilityMonitor()
+        updateFullscreenVisibility()
         if (stateMachine.state == OverlayState.Wave) scheduleAutoCollapse()
         forceRender = true
         postFrame()
@@ -337,6 +338,7 @@ class OverlayWindowController(
         updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
         updateBackgroundDim()
         updateStatusBarVisibilityMonitor()
+        updateFullscreenVisibility()
         forceRender = true
         postFrame()
     }
@@ -506,6 +508,7 @@ class OverlayWindowController(
                 capsuleOutline = showDarkCapsuleOutline && isSystemDarkMode() &&
                     stateMachine.state == OverlayState.Collapsed,
                 fullscreenCapsuleScale = fullscreenFrame.scale,
+                fullscreenCapsuleSquareProgress = fullscreenFrame.squareProgress,
                 fullscreenCapsuleOpacity = fullscreenFrame.opacity,
             )
             updateShapeInputRegion(snapshot)
@@ -879,8 +882,9 @@ class OverlayWindowController(
      * reveal the orb even while the foreground app is immersive fullscreen.
      */
     private fun updateFullscreenVisibility() {
-        val shouldHide = config.geometry.hideWhenStatusBarHidden &&
-            statusBarHidden && !systemAssistantWindowVisible
+        val hiddenByFullscreen = config.geometry.hideWhenStatusBarHidden && statusBarHidden
+        val hiddenByLandscape = config.geometry.hideWhenLandscape && isLandscape()
+        val shouldHide = (hiddenByFullscreen || hiddenByLandscape) && !systemAssistantWindowVisible
         val targetPhase = if (shouldHide) {
             FullscreenCapsulePhase.Hiding
         } else {
@@ -1006,28 +1010,44 @@ class OverlayWindowController(
             val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
                 WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
             )
-            val landscape = context.resources.configuration.orientation ==
-                android.content.res.Configuration.ORIENTATION_LANDSCAPE
             OverlayLayout.safeBoundsForDisplay(
                 displayBounds = IntRect(bounds.left, bounds.top, bounds.right, bounds.bottom),
                 systemInsets = IntRect(insets.left, insets.top, insets.right, insets.bottom),
-                landscape = landscape,
-                followScreenRotation = config.geometry.followScreenRotation,
+                landscape = isLandscape(),
             )
         } else {
             @Suppress("DEPRECATION")
             val display = windowManager.defaultDisplay
             val point = Point().also(display::getRealSize)
-            val landscape = context.resources.configuration.orientation ==
-                android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            val landscape = isLandscape()
             val insets = legacyDisplayInsets(display, landscape)
             OverlayLayout.safeBoundsForDisplay(
                 displayBounds = IntRect(0, 0, point.x, point.y),
                 systemInsets = insets,
                 landscape = landscape,
-                followScreenRotation = config.geometry.followScreenRotation,
             )
         }
+    }
+
+    /**
+     * Configuration is the semantic orientation, while the display bounds
+     * are the physical coordinate space used by WindowManager. During an OEM
+     * rotation transition they can update on different frames, so accept the
+     * physical landscape shape as a fallback instead of deriving an origin
+     * from a stale configuration snapshot.
+     */
+    private fun isLandscape(): Boolean {
+        if (context.resources.configuration.orientation ==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        ) return true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.currentWindowMetrics.bounds
+            return bounds.width() > bounds.height()
+        }
+        @Suppress("DEPRECATION")
+        val display = windowManager.defaultDisplay
+        return display.rotation == android.view.Surface.ROTATION_90 ||
+            display.rotation == android.view.Surface.ROTATION_270
     }
 
     @Suppress("DEPRECATION")
@@ -1048,9 +1068,8 @@ class OverlayWindowController(
 
         // During initial creation there is no root view yet. Reconstruct the
         // stable API 29 system-bar geometry from the framework navigation
-        // dimensions so rotation-following also works on the minimum supported
-        // Android version. Cutout insets are supplied by the root-view branch
-        // above once the overlay has been attached.
+        // dimensions while the overlay is being created. Cutout insets are
+        // supplied by the root-view branch above once the overlay is attached.
         val navigationWidth = systemDimension("navigation_bar_width")
         val navigationHeight = systemDimension("navigation_bar_height")
         val rotation = display.rotation
@@ -1108,7 +1127,9 @@ class OverlayWindowController(
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         PixelFormat.TRANSLUCENT,
     ).apply {
-        gravity = Gravity.TOP or Gravity.START
+        // Use physical-left anchoring. START is layout-direction aware and
+        // can mirror the x origin on a rotated RTL configuration.
+        gravity = Gravity.TOP or Gravity.LEFT
         x = bounds.left
         y = bounds.top
         title = "Glass orb overlay"
@@ -1140,7 +1161,7 @@ class OverlayWindowController(
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.START
+            gravity = Gravity.TOP or Gravity.LEFT
             x = physical.left
             y = physical.top
             // Keep the separate non-touchable dim window under Android's
@@ -1286,10 +1307,10 @@ class OverlayWindowController(
         const val PERMISSION_CHECK_INTERVAL_MS = 15_000L
         const val STATUS_BAR_VISIBILITY_CHECK_MS = 200L
         // Response values are tuned against the settled thresholds below:
-        // both fullscreen directions are approximately 1100ms.
-        const val FULLSCREEN_HIDE_RESPONSE = 0.75f
+        // both fullscreen/landscape directions are approximately 1300ms.
+        const val FULLSCREEN_HIDE_RESPONSE = 0.84f
         const val FULLSCREEN_HIDE_DAMPING = 1f
-        const val FULLSCREEN_SHOW_RESPONSE = 0.67f
+        const val FULLSCREEN_SHOW_RESPONSE = 0.78f
         const val FULLSCREEN_SHOW_DAMPING = 0.64f
         const val ASSISTANT_COLLAPSE_DELAY_MS = 420L
     }

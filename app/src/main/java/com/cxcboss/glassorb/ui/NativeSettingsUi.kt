@@ -400,15 +400,6 @@ internal class NativeSettingsController(
         content.addView(anchors, matchWrap())
         divider(content)
 
-        addSwitchRow(
-            content,
-            "跟随屏幕旋转",
-            "默认关闭：横屏保持竖屏的角度、大小、位置和顶部锚点；开启后按当前屏幕安全区布局",
-            config.geometry.followScreenRotation,
-        ) { enabled ->
-            updateConfig { it.copy(geometry = it.geometry.copy(followScreenRotation = enabled)) }
-        }
-
         val verticalDensity = activity.resources.displayMetrics.density.coerceAtLeast(0.1f)
         addSlider(
             content,
@@ -448,9 +439,30 @@ internal class NativeSettingsController(
         ) { enabled ->
             updateConfig { it.copy(geometry = it.geometry.copy(hideWhenStatusBarHidden = enabled)) }
         }
-        addSlider(content, "球体直径", config.geometry.orbDiameterDp, OrbConfig.reference().geometry.orbDiameterDp, 88f..220f, "dp") { value ->
-            updateConfig { current -> current.copy(geometry = current.geometry.copy(orbDiameterDp = value)) }
+        addSwitchRow(
+            content,
+            "横屏隐藏",
+            "横屏时隐藏灵动岛图形和触控区域，恢复竖屏后使用平滑动画显示",
+            config.geometry.hideWhenLandscape,
+        ) { enabled ->
+            updateConfig { it.copy(geometry = it.geometry.copy(hideWhenLandscape = enabled)) }
         }
+        addSlider(content, "球体直径", config.geometry.orbDiameterDp, OrbConfig.reference().geometry.orbDiameterDp, 88f..220f, "dp") { value ->
+            updateConfig { current ->
+                current.copy(geometry = current.geometry.copy(
+                    orbDiameterDp = value,
+                    orbWidthDp = value,
+                    orbHeightDp = value,
+                ))
+            }
+        }
+        addSlider(content, "玻璃球宽度", config.geometry.orbWidthDp, OrbConfig.reference().geometry.orbWidthDp, 88f..260f, "dp") { value ->
+            updateConfig { current -> current.copy(geometry = current.geometry.copy(orbWidthDp = value)) }
+        }
+        addSlider(content, "玻璃球高度", config.geometry.orbHeightDp, OrbConfig.reference().geometry.orbHeightDp, 88f..260f, "dp") { value ->
+            updateConfig { current -> current.copy(geometry = current.geometry.copy(orbHeightDp = value)) }
+        }
+        addNote(content, "宽度与高度相同为圆形；调整其中一项即可变为椭圆。")
         addSlider(content, "外部效果余量", config.geometry.outerMarginDp, OrbConfig.reference().geometry.outerMarginDp, 8f..48f, "dp") { value ->
             updateConfig { current -> current.copy(geometry = current.geometry.copy(outerMarginDp = value)) }
         }
@@ -533,9 +545,10 @@ internal class NativeSettingsController(
         addSlider(content, "阴影", config.glass.shadowAmount, OrbConfig.reference().glass.shadowAmount, 0f..1.5f, decimals = 2) { value ->
             updateConfig { current -> current.copy(glass = current.glass.copy(shadowAmount = value)) }
         }
-        addSlider(content, "焦散", config.glass.causticAmount, OrbConfig.reference().glass.causticAmount, 0f..3f, decimals = 2) { value ->
+        addSlider(content, "焦散强度", config.glass.causticAmount, OrbConfig.reference().glass.causticAmount, 0f..3f, decimals = 2) { value ->
             updateConfig { current -> current.copy(glass = current.glass.copy(causticAmount = value)) }
         }
+        addNote(content, "焦散颜色会自动跟随玻璃球内部颜色变化，此处仅调节焦散强度。")
         addSlider(content, "阴影偏移", config.glass.shadowOffset, OrbConfig.reference().glass.shadowOffset, -3f..3f, decimals = 2) { value ->
             updateConfig { current -> current.copy(glass = current.glass.copy(shadowOffset = value)) }
         }

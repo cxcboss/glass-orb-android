@@ -11,7 +11,10 @@ enum class HorizontalAnchor {
 data class GeometryConfig(
     val capsuleWidthDp: Float = 118f,
     val capsuleHeightDp: Float = 34f,
+    /** Legacy base size retained for importing/exporting older presets. */
     val orbDiameterDp: Float = 128f,
+    val orbWidthDp: Float = 128f,
+    val orbHeightDp: Float = 128f,
     val outerMarginDp: Float = 20f,
     val effectScale: Float = 1.18f,
     val verticalOffsetDp: Float = 8f,
@@ -21,7 +24,7 @@ data class GeometryConfig(
     val touchAreaScale: Float = 1.35f,
     val expandBelowCapsule: Boolean = false,
     val hideWhenStatusBarHidden: Boolean = true,
-    val followScreenRotation: Boolean = false,
+    val hideWhenLandscape: Boolean = false,
 )
 
 data class GlassConfig(
@@ -116,6 +119,8 @@ data class OrbConfig(
                 capsuleWidthDp = geometry.capsuleWidthDp.safeRange(0f, 220f, defaults.geometry.capsuleWidthDp),
                 capsuleHeightDp = geometry.capsuleHeightDp.safeRange(0f, 64f, defaults.geometry.capsuleHeightDp),
                 orbDiameterDp = geometry.orbDiameterDp.safeRange(88f, 220f, defaults.geometry.orbDiameterDp),
+                orbWidthDp = geometry.orbWidthDp.safeRange(88f, 260f, defaults.geometry.orbWidthDp),
+                orbHeightDp = geometry.orbHeightDp.safeRange(88f, 260f, defaults.geometry.orbHeightDp),
                 outerMarginDp = geometry.outerMarginDp.safeRange(8f, 48f, defaults.geometry.outerMarginDp),
                 effectScale = geometry.effectScale.safeRange(0.9f, 1.5f, defaults.geometry.effectScale),
                 // Stored in dp for backwards-compatible JSON, while the

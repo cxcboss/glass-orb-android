@@ -89,7 +89,7 @@ class OverlayLayoutTest {
     }
 
     @Test
-    fun `landscape portrait lock ignores side insets by default`() {
+    fun `landscape portrait lock always ignores side insets`() {
         val display = IntRect(left = 0, top = 0, right = 2280, bottom = 1080)
         val insets = IntRect(left = 96, top = 0, right = 96, bottom = 24)
 
@@ -97,7 +97,6 @@ class OverlayLayoutTest {
             displayBounds = display,
             systemInsets = insets,
             landscape = true,
-            followScreenRotation = false,
         )
 
         assertEquals(0, safe.left)
@@ -106,15 +105,14 @@ class OverlayLayoutTest {
     }
 
     @Test
-    fun `landscape follow rotation respects current side insets`() {
+    fun `portrait safe bounds still respect horizontal insets`() {
         val display = IntRect(left = 0, top = 0, right = 2280, bottom = 1080)
         val insets = IntRect(left = 96, top = 0, right = 96, bottom = 24)
 
         val safe = OverlayLayout.safeBoundsForDisplay(
             displayBounds = display,
             systemInsets = insets,
-            landscape = true,
-            followScreenRotation = true,
+            landscape = false,
         )
 
         assertEquals(96, safe.left)
@@ -173,5 +171,18 @@ class OverlayLayoutTest {
         assertEquals(visual.top + visual.height / 2f, touch.top + touch.height / 2f, 1f)
         assertTrue(touch.width >= visual.width)
         assertTrue(touch.height >= visual.height)
+    }
+
+    @Test
+    fun `orb touch bounds follow the configured ellipse dimensions`() {
+        val safe = IntRect(left = 0, top = 0, right = 1080, bottom = 2280)
+        val bounds = OverlayLayout.orbTouchBounds(
+            geometry = GeometryConfig(orbWidthDp = 160f, orbHeightDp = 96f),
+            safeBoundsPx = safe,
+            density = 2f,
+        )
+
+        assertEquals(320, bounds.width)
+        assertEquals(192, bounds.height)
     }
 }
