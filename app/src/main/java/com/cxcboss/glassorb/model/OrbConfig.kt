@@ -51,6 +51,7 @@ data class ContainerConfig(
     val fade: Float = 1f,
     val gaussian: Float = 8f,
     val backgroundDimEnabled: Boolean = true,
+    val backgroundBlurEnabled: Boolean = false,
 )
 
 data class WaveConfig(

@@ -32,6 +32,7 @@ import com.cxcboss.glassorb.render.ShapeMetrics
 import com.cxcboss.glassorb.render.ShapeFrame
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import java.util.function.Consumer
 
 class OverlayWindowController(
     private val context: Context,
@@ -64,6 +65,11 @@ class OverlayWindowController(
     private var backgroundDimParams: WindowManager.LayoutParams? = null
     private var touchView: View? = null
     private var touchParams: WindowManager.LayoutParams? = null
+    private var backgroundBlurController: BackgroundBlurController? = null
+    private var crossWindowBlurListenerRegistered = false
+    private val crossWindowBlurListener = Consumer<Boolean> {
+        mainHandler.post { updateBackgroundBlur() }
+    }
     private var framePosted = false
     private var screenOn = true
     private var lastFrameNanos = 0L
@@ -194,9 +200,16 @@ class OverlayWindowController(
         val targetParams = createLayoutParams(touchBounds, touchable = true)
         val dimView = BackgroundDimView(context)
         val dimParams = createBackgroundDimParams(display.physicalBounds)
+        val blurController = BackgroundBlurController(
+            AndroidBackgroundBlurWindow(windowContext ?: context, accessibilityWindow),
+            blurRadiusPx = (BACKGROUND_BLUR_RADIUS_DP * density).roundToInt().coerceAtLeast(1),
+        )
         return try {
             // Place the static dim layer below the GL surface and touch proxy.
             windowManager.addView(dimView, dimParams)
+            // Attach the optional real Window before the GL host so enabling
+            // blur later cannot reorder it above the renderer.
+            blurController.show(OverlayLayout.orbTouchBounds(config.geometry, display, density))
             windowManager.addView(host, initialHostParams)
             inputRegion = WindowInputRegion(host)
             windowManager.addView(target, targetParams)
@@ -208,6 +221,8 @@ class OverlayWindowController(
             backgroundDimParams = dimParams
             touchView = target
             touchParams = targetParams
+            backgroundBlurController = blurController
+            registerCrossWindowBlurCapabilityListener()
             AccessibilityOverlayBridge.updateTouchBounds(
                 if (AccessibilityOverlayBridge.isConnected()) currentAccessibilityTouchBounds(display) else null,
             )
@@ -231,6 +246,7 @@ class OverlayWindowController(
             runCatching { windowManager.removeViewImmediate(target) }
             runCatching { windowManager.removeViewImmediate(host) }
             runCatching { windowManager.removeViewImmediate(dimView) }
+            blurController.destroy()
             textureView.release()
             onFatalError(error.message ?: "无法创建悬浮窗")
             false
@@ -321,6 +337,7 @@ class OverlayWindowController(
             mainHandler.removeCallbacks(permissionCheck)
             mainHandler.removeCallbacks(statusBarVisibilityCheck)
         }
+        updateBackgroundBlur()
     }
 
     fun updateConfig(config: OrbConfig) {
@@ -1220,6 +1237,7 @@ class OverlayWindowController(
         display: RotationDisplayGeometry = displayGeometry(),
         expandedFrame: ExpandedFrameGeometry? = null,
     ) {
+        updateBackgroundBlur(display)
         val dimView = backgroundDimView ?: return
         val dimParams = backgroundDimParams ?: return
         val physical = display.physicalBounds
@@ -1265,6 +1283,7 @@ class OverlayWindowController(
     private fun removeView() {
         removeFrame()
         mainHandler.removeCallbacks(permissionCheck)
+        unregisterCrossWindowBlurCapabilityListener()
         val textureView = view
         inputRegion?.close()
         inputRegion = null
@@ -1279,6 +1298,8 @@ class OverlayWindowController(
         backgroundDimView?.let { runCatching { windowManager.removeViewImmediate(it) } }
         backgroundDimView = null
         backgroundDimParams = null
+        backgroundBlurController?.destroy()
+        backgroundBlurController = null
         AccessibilityOverlayBridge.updateTouchBounds(null)
         if (textureView == null) return
         try {
@@ -1286,6 +1307,43 @@ class OverlayWindowController(
         } catch (_: Throwable) {
             textureView.release()
         }
+    }
+
+    private fun updateBackgroundBlur(
+        display: RotationDisplayGeometry = displayGeometry(),
+    ) {
+        val controller = backgroundBlurController ?: return
+        val expanded = stateMachine.state == OverlayState.Wave || stateMachine.state == OverlayState.Thinking
+        val visible = view != null && screenOn && expanded &&
+            !fullscreenAutoHidden && fullscreenTransition == FullscreenCapsulePhase.None
+        controller.update(
+            BackgroundBlurRequest(
+                userEnabled = config.container.backgroundBlurEnabled,
+                apiLevel = Build.VERSION.SDK_INT,
+                crossWindowBlurEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    windowManager.isCrossWindowBlurEnabled
+                } else {
+                    false
+                },
+                visible = visible,
+                bounds = OverlayLayout.orbTouchBounds(config.geometry, display, density),
+                shape = BackgroundBlurPolicy.shapeFor(config.geometry),
+            ),
+        )
+    }
+
+    private fun registerCrossWindowBlurCapabilityListener() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || crossWindowBlurListenerRegistered) return
+        runCatching {
+            windowManager.addCrossWindowBlurEnabledListener(context.mainExecutor, crossWindowBlurListener)
+            crossWindowBlurListenerRegistered = true
+        }
+    }
+
+    private fun unregisterCrossWindowBlurCapabilityListener() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !crossWindowBlurListenerRegistered) return
+        runCatching { windowManager.removeCrossWindowBlurEnabledListener(crossWindowBlurListener) }
+        crossWindowBlurListenerRegistered = false
     }
 
     private fun postFrame() {
@@ -1354,5 +1412,6 @@ class OverlayWindowController(
         const val FULLSCREEN_SHOW_DAMPING = 0.64f
         const val ASSISTANT_COLLAPSE_DELAY_MS = 420L
         const val DISPLAY_GEOMETRY_READ_ATTEMPTS = 3
+        const val BACKGROUND_BLUR_RADIUS_DP = 32f
     }
 }

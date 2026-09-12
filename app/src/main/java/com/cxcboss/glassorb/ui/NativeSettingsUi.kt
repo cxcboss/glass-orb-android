@@ -565,6 +565,14 @@ internal class NativeSettingsController(
         addSwitchRow(content, "背景压暗", "从顶部 28% 黑色渐变到透明，随展开与收起淡入淡出", config.container.backgroundDimEnabled) { enabled ->
             updateConfig { it.copy(container = it.container.copy(backgroundDimEnabled = enabled)) }
         }
+        addSwitchRow(
+            content,
+            "背景局部模糊",
+            "Android 12+ 且圆形玻璃球可用；椭圆或设备不支持时仅关闭模糊，保留现有效果",
+            config.container.backgroundBlurEnabled,
+        ) { enabled ->
+            updateConfig { it.copy(container = it.container.copy(backgroundBlurEnabled = enabled)) }
+        }
         addSubheading(content, "球体暗部")
         addSlider(content, "强度", config.container.strength, OrbConfig.reference().container.strength, 0f..4f, decimals = 2) { value ->
             updateConfig { current -> current.copy(container = current.container.copy(strength = value)) }

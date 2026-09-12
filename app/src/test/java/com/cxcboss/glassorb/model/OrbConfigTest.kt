@@ -21,6 +21,7 @@ class OrbConfigTest {
         assertEquals(0.85f, config.glass.upperHighlightAmount, 0f)
         assertEquals(1.6f, config.glass.causticAmount, 0f)
         assertEquals(true, config.container.backgroundDimEnabled)
+        assertEquals(false, config.container.backgroundBlurEnabled)
         assertEquals(30_000f, config.wave.bandFill, 0f)
         assertEquals(0.055f, config.dots.glow, 0f)
         assertEquals(48f, config.motion.collapseRangeDp, 0f)
@@ -111,12 +112,25 @@ class OrbConfigTest {
                 deformResponse = 0.31f,
                 deformDamping = 0.71f,
             ),
-            container = OrbConfig.bright().container.copy(backgroundDimEnabled = true),
+            container = OrbConfig.bright().container.copy(
+                backgroundDimEnabled = true,
+                backgroundBlurEnabled = true,
+            ),
         )
 
         val restored = OrbConfigJson.decode(OrbConfigJson.encode(original)).getOrThrow()
 
         assertEquals(original, restored)
+    }
+
+    @Test
+    fun `legacy json migrates missing background blur to disabled`() {
+        val restored = OrbConfigJson.decode(
+            """{"container":{"backgroundDimEnabled":true}}""",
+        ).getOrThrow()
+
+        assertEquals(false, restored.container.backgroundBlurEnabled)
+        assertTrue(OrbConfigJson.encode(restored).contains("backgroundBlurEnabled"))
     }
 
     @Test
