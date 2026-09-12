@@ -32,6 +32,13 @@ android {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 
+    // This is a sideload/debug utility rather than a Play-distributed app.
+    // Keep targetSdk 30 for the established OEM overlay/accessibility
+    // compatibility contract; suppress only the Play target-age check.
+    lint {
+        disable += "ExpiredTargetSdkVersion"
+    }
+
     sourceSets.getByName("main").assets.directories.add(rootProject.file("licenses").absolutePath)
 
     testOptions {
