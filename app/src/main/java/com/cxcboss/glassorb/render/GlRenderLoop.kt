@@ -116,6 +116,7 @@ internal class GlRenderLoop(
 
     fun setPaused(paused: Boolean) {
         handler.post {
+            if (!RenderPauseTransition.shouldApply(this.paused, paused)) return@post
             this.paused = paused
             if (!paused) scheduleFrame(0)
         }

@@ -6,7 +6,7 @@ import android.util.AttributeSet
 import android.util.Log
 import android.view.TextureView
 
-class OrbTextureView @JvmOverloads constructor(
+internal class OrbTextureView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : TextureView(context, attrs), TextureView.SurfaceTextureListener, OrbRenderer {
@@ -37,6 +37,7 @@ class OrbTextureView @JvmOverloads constructor(
     }
 
     override fun setPaused(paused: Boolean) {
+        if (!RenderPauseTransition.shouldApply(this.paused, paused)) return
         this.paused = paused
         renderLoop?.setPaused(paused)
     }

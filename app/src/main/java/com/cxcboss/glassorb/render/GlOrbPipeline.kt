@@ -68,7 +68,7 @@ internal class GlOrbPipeline(
         val palette = requireNotNull(paletteTarget)
         val scene = requireNotNull(sceneTarget)
         val config = snapshot.config
-        val frame = ShapeFrame.from(snapshot, width, height, displayDensity)
+        val frame = snapshot.presentationFrame?.shape ?: ShapeFrame.from(snapshot, width, height, displayDensity)
         val morph = frame.morph
         val density = frame.density
         val visualScale = frame.visualScale
@@ -94,8 +94,11 @@ internal class GlOrbPipeline(
         // The two off-screen passes are the expensive animated part. During a
         // collapse keep their last image and render only the lightweight shape
         // pass. A resize invalidates scenePopulated and forces one fresh pass.
-        val renderAmbientScene = snapshot.state != OverlayState.Collapsed &&
-            (!snapshot.collapseEffectsFrozen || !scenePopulated)
+        val renderAmbientScene = RenderWorkPolicy.shouldRenderAmbientScene(
+            state = snapshot.state,
+            effectsFrozen = snapshot.collapseEffectsFrozen,
+            scenePopulated = scenePopulated,
+        )
         if (renderAmbientScene) {
             effect.bind()
             GLES30.glViewport(0, 0, effect.width, effect.height)

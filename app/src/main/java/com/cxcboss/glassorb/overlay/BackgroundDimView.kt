@@ -19,6 +19,7 @@ internal class BackgroundDimView(context: Context) : View(context) {
     private var gradientHeightPx = 0
     private var enabled = false
     private var fadeAnimator: ValueAnimator? = null
+    private var gradient: LinearGradient? = null
 
     init { alpha = 0f }
 
@@ -26,8 +27,10 @@ internal class BackgroundDimView(context: Context) : View(context) {
         val nextHeight = gradientHeightPx.coerceAtLeast(0)
         if (this.enabled == enabled && this.gradientHeightPx == nextHeight) return
         val visibilityChanged = this.enabled != enabled
+        val heightChanged = this.gradientHeightPx != nextHeight
         this.enabled = enabled
         this.gradientHeightPx = nextHeight
+        if (heightChanged) gradient = null
         if (!visibilityChanged) {
             invalidate()
             return
@@ -52,15 +55,18 @@ internal class BackgroundDimView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         if (gradientHeightPx <= 0 || width <= 0) return
-        paint.shader = LinearGradient(
-            0f,
-            0f,
-            0f,
-            gradientHeightPx.toFloat(),
-            0xFF000000.toInt(),
-            0x00000000,
-            Shader.TileMode.CLAMP,
-        )
+        if (gradient == null) {
+            gradient = LinearGradient(
+                0f,
+                0f,
+                0f,
+                gradientHeightPx.toFloat(),
+                0xFF000000.toInt(),
+                0x00000000,
+                Shader.TileMode.CLAMP,
+            )
+        }
+        paint.shader = gradient
         canvas.drawRect(0f, 0f, width.toFloat(), gradientHeightPx.toFloat(), paint)
     }
 
