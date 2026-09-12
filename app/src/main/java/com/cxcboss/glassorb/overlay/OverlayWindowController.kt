@@ -540,15 +540,15 @@ class OverlayWindowController(
                 fullscreenCapsuleSquareProgress = fullscreenFrame.squareProgress,
                 fullscreenCapsuleOpacity = fullscreenFrame.opacity,
             )
-            val snapshot = snapshotWithoutPresentation.copy(
+            val snapshot = snapshotWithoutPresentation.apply {
                 presentationFrame = RenderPresentationFrame.from(
-                    snapshot = snapshotWithoutPresentation,
+                    snapshot = this,
                     presentation = framePresentation,
                     canvasX = params?.x ?: 0,
                     canvasY = params?.y ?: 0,
                     density = density,
-                ),
-            )
+                )
+            }
             updateShapeInputRegion(snapshot)
             updateBackgroundDim(framePresentation, snapshot.presentationFrame)
             textureView.submit(snapshot)
@@ -1069,20 +1069,48 @@ class OverlayWindowController(
         @Suppress("DEPRECATION")
         val display = windowManager.defaultDisplay
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Metrics and rotation are read as a pair. If Android is midway
-            // through a rotation, retain the last coherent pair instead of
-            // publishing a frame assembled from two different orientations.
-            val samples = buildList {
-                repeat(DISPLAY_GEOMETRY_READ_ATTEMPTS) {
-                    add(readApi30DisplaySample(display))
-                }
-            }
-            val stable = RotationCoordinateSpace.selectStableGeometry(
-                samples,
-                lastStableDisplayGeometry,
+            // Metrics and rotation are read as one pair. The fast path returns
+            // the immutable previous snapshot when nothing changed, avoiding
+            // three temporary sample objects on every display-vsync callback.
+            val rotationBefore = display.rotation
+            val metrics = windowManager.currentWindowMetrics
+            val metricsBounds = metrics.bounds
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
             )
-            (stable ?: samples.last().geometry).also {
-                if (stable != null) lastStableDisplayGeometry = stable
+            val rotationAfter = display.rotation
+            val previous = lastStableDisplayGeometry
+            val unchanged = previous != null && previous.rotation == rotationBefore &&
+                previous.physicalBounds.left == metricsBounds.left &&
+                previous.physicalBounds.top == metricsBounds.top &&
+                previous.physicalBounds.right == metricsBounds.right &&
+                previous.physicalBounds.bottom == metricsBounds.bottom &&
+                previous.systemInsets.left == insets.left &&
+                previous.systemInsets.top == insets.top &&
+                previous.systemInsets.right == insets.right &&
+                previous.systemInsets.bottom == insets.bottom
+            if (rotationBefore == rotationAfter && unchanged) {
+                previous
+            } else {
+                val physicalBounds = IntRect(
+                    metricsBounds.left,
+                    metricsBounds.top,
+                    metricsBounds.right,
+                    metricsBounds.bottom,
+                )
+                val systemInsets = IntRect(insets.left, insets.top, insets.right, insets.bottom)
+                val candidate = RotationDisplayGeometry(
+                    physicalBounds = physicalBounds,
+                    safeBounds = OverlayLayout.safeBoundsForDisplay(
+                        displayBounds = physicalBounds,
+                        systemInsets = systemInsets,
+                        landscape = physicalBounds.width > physicalBounds.height,
+                    ),
+                    systemInsets = systemInsets,
+                    rotation = rotationBefore,
+                )
+                if (rotationBefore == rotationAfter) lastStableDisplayGeometry = candidate
+                if (rotationBefore == rotationAfter || previous == null) candidate else previous
             }
         } else {
             @Suppress("DEPRECATION")
@@ -1104,32 +1132,6 @@ class OverlayWindowController(
             lastStableDisplayGeometry = geometry
             geometry
         }
-    }
-
-    private fun readApi30DisplaySample(display: android.view.Display): RotationDisplaySample {
-        val rotationBefore = display.rotation
-        val metrics = windowManager.currentWindowMetrics
-        val bounds = metrics.bounds
-        val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
-            WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
-        )
-        val rotationAfter = display.rotation
-        val physicalBounds = IntRect(bounds.left, bounds.top, bounds.right, bounds.bottom)
-        val systemInsets = IntRect(insets.left, insets.top, insets.right, insets.bottom)
-        return RotationDisplaySample(
-            geometry = RotationDisplayGeometry(
-                physicalBounds = physicalBounds,
-                safeBounds = OverlayLayout.safeBoundsForDisplay(
-                    displayBounds = physicalBounds,
-                    systemInsets = systemInsets,
-                    landscape = physicalBounds.width > physicalBounds.height,
-                ),
-                systemInsets = systemInsets,
-                rotation = rotationBefore,
-            ),
-            rotationBefore = rotationBefore,
-            rotationAfter = rotationAfter,
-        )
     }
 
     @Suppress("DEPRECATION")
@@ -1438,7 +1440,6 @@ class OverlayWindowController(
         const val FULLSCREEN_SHOW_RESPONSE = 0.78f
         const val FULLSCREEN_SHOW_DAMPING = 0.64f
         const val ASSISTANT_COLLAPSE_DELAY_MS = 420L
-        const val DISPLAY_GEOMETRY_READ_ATTEMPTS = 3
         const val BACKGROUND_BLUR_RADIUS_DP = 32f
     }
 }

@@ -49,5 +49,8 @@ internal data class RenderSnapshot(
     val fullscreenCapsuleSquareProgress: Float = 0f,
     val fullscreenCapsuleOpacity: Float = 1f,
     /** Display/layout and shape context captured for this exact presentation frame. */
-    internal val presentationFrame: RenderPresentationFrame? = null,
+    // Set once on the producer thread before publication to the GL thread.
+    // Keeping the snapshot itself as a single allocation matters at 120Hz;
+    // the frame object remains immutable after this construction step.
+    internal var presentationFrame: RenderPresentationFrame? = null,
 )
