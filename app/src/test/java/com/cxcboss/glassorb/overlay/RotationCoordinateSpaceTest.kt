@@ -162,6 +162,30 @@ class RotationCoordinateSpaceTest {
     }
 
     @Test
+    fun `downward expansion changes orb position without moving capsule anchor`() {
+        val normal = GeometryConfig(capsuleHeightDp = 48f, expandBelowCapsule = false)
+        val below = normal.copy(expandBelowCapsule = true)
+        val display = RotationDisplayGeometry(
+            physicalBounds = portraitDisplay,
+            safeBounds = IntRect(0, 24, 1080, 2208),
+            systemInsets = IntRect(0, 24, 0, 72),
+            rotation = 0,
+        )
+        val normalCapsule = OverlayLayout.collapsedBounds(normal, display, 1f)
+        val belowCapsule = OverlayLayout.collapsedBounds(below, display, 1f)
+        val normalFrame = OverlayLayout.expandedFrame(normal, display, 1f)
+        val belowFrame = OverlayLayout.expandedFrame(below, display, 1f)
+        val normalAnchor = OverlayLayout.anchorOffsets(normalFrame.bounds, normalCapsule, 1f)
+        val belowAnchor = OverlayLayout.anchorOffsets(belowFrame.bounds, belowCapsule, 1f)
+
+        assertEquals(normalCapsule.left, belowCapsule.left)
+        assertEquals(normalCapsule.top, belowCapsule.top)
+        assertEquals(normalCapsule.top, normalFrame.bounds.top + normalAnchor.topDp.toInt())
+        assertEquals(belowCapsule.top, belowFrame.bounds.top + belowAnchor.topDp.toInt())
+        assertEquals(20, OverlayLayout.orbTouchBounds(below, display, 1f).top - belowCapsule.bottom)
+    }
+
+    @Test
     fun `expanded and capsule touch bounds follow the mapped displayed shape`() {
         val geometry = GeometryConfig(
             capsuleWidthDp = 118f,

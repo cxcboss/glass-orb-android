@@ -14,8 +14,8 @@ android {
         // uses explicit edge-to-edge/insets handling in the settings activity.
         minSdk = 29
         targetSdk = 30
-        versionCode = 30
-        versionName = "2.0.20"
+        versionCode = 32
+        versionName = "2.0.22"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

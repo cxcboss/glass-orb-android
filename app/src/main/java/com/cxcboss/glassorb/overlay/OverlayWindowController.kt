@@ -95,6 +95,15 @@ class OverlayWindowController(
     private var presentationToken = 0L
     private var lastRenderSubmitNanos = 0L
     private var forceRender = false
+    /**
+     * WindowManager layout work is intentionally applied on the next display
+     * frame. Settings sliders can emit many samples between two vsyncs; doing
+     * a full host/touch-window update for every sample makes the compositor
+     * compete with the renderer and produces visible judder. The config field
+     * remains live immediately, while this latest-value queue coalesces the
+     * expensive part.
+     */
+    private val pendingLayoutUpdates = LatestFrameUpdate<OrbConfig>()
     private var showDarkCapsuleOutline = false
     private var lastStableDisplayGeometry: RotationDisplayGeometry? = null
     private var collapseReleaseVelocityDpPerSecond = 0f
@@ -226,6 +235,7 @@ class OverlayWindowController(
             touchView = target
             touchParams = targetParams
             backgroundBlurController = blurController
+            pendingLayoutUpdates.clear()
             registerCrossWindowBlurCapabilityListener()
             AccessibilityOverlayBridge.updateTouchBounds(
                 if (AccessibilityOverlayBridge.isConnected()) currentAccessibilityTouchBounds(display) else null,
@@ -347,24 +357,17 @@ class OverlayWindowController(
     fun updateConfig(config: OrbConfig) {
         this.config = config.normalized()
         windowMotion.updateMotion(this.config.motion)
-        val display = displayGeometry()
-        val expandedFrame = OverlayLayout.expandedFrame(this.config.geometry, display, density)
-        updateBounds(display, expandedFrame)
-        updateTouchBounds(stateMachine.state != OverlayState.Collapsed, display)
-        updateStatusBarVisibilityMonitor(display)
-        updateFullscreenVisibility(display, expandedFrame)
+        // Keep the latest config available to the render snapshot now, but
+        // batch WindowManager mutations until the next choreographer callback.
+        // This is especially important while dragging a geometry slider.
+        pendingLayoutUpdates.offer(this.config)
         if (stateMachine.state == OverlayState.Wave) scheduleAutoCollapse()
         forceRender = true
         postFrame()
     }
 
     fun onConfigurationChanged() {
-        val display = displayGeometry()
-        val expandedFrame = OverlayLayout.expandedFrame(config.geometry, display, density)
-        updateBounds(display, expandedFrame)
-        updateTouchBounds(stateMachine.state != OverlayState.Collapsed, display)
-        updateStatusBarVisibilityMonitor(display)
-        updateFullscreenVisibility(display, expandedFrame)
+        pendingLayoutUpdates.offer(config)
         forceRender = true
         postFrame()
     }
@@ -387,6 +390,7 @@ class OverlayWindowController(
         framePosted = false
         val textureView = view ?: return
         if (!screenOn) return
+        applyPendingLayoutUpdate()
         val framePresentation: PresentationGeometry by lazy {
             OverlayLayout.presentationSnapshot(config.geometry, displayGeometry(), density)
         }
@@ -564,6 +568,20 @@ class OverlayWindowController(
             // idle after this final submitted frame without a racing pause.
             lastFrameNanos = 0L
         }
+    }
+
+    private fun applyPendingLayoutUpdate() {
+        val latestConfig = pendingLayoutUpdates.take() ?: return
+        if (view == null) return
+        // A newer value can replace several slider samples before this point;
+        // publish the exact same value to every dependent geometry calculation.
+        config = latestConfig
+        val display = displayGeometry()
+        val expandedFrame = OverlayLayout.expandedFrame(config.geometry, display, density)
+        updateBounds(display, expandedFrame)
+        updateTouchBounds(stateMachine.state != OverlayState.Collapsed, display)
+        updateStatusBarVisibilityMonitor(display)
+        updateFullscreenVisibility(display, expandedFrame)
     }
 
     private fun onTouch(view: View, event: MotionEvent): Boolean {
