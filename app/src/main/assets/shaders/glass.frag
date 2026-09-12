@@ -4,6 +4,7 @@ precision highp float;
 
 uniform vec2 uResolution;
 uniform sampler2D uSceneTexture;
+uniform sampler2D uPaletteTexture;
 
 uniform vec2 uPanelSize;
 uniform vec2 uCanvasSize;
@@ -87,6 +88,27 @@ vec3 hueShift(vec3 color, float shift) {
 
 vec3 hueColor(float hue) {
 	return hsvToRgb(vec3(fract(hue), 0.82, 1.0));
+}
+
+vec3 paletteFallbackColor(float hue) {
+	return hsvToRgb(vec3(fract(hue), 0.62, 0.9));
+}
+
+vec3 dynamicCausticColor() {
+	vec4 reduction = texture(uPaletteTexture, vec2(0.5));
+	vec3 fallback = paletteFallbackColor(uInternalHueShift + 0.08);
+	float coverage = saturate(reduction.a);
+	float confidence = smoothstep(0.01, 0.06, coverage);
+	vec3 mixed = mix(fallback, clamp(reduction.rgb, 0.0, 1.0), confidence);
+	float mixedLuminance = dot(mixed, vec3(0.2126, 0.7152, 0.0722));
+	float fallbackLuminance = dot(fallback, vec3(0.2126, 0.7152, 0.0722));
+	float brightness = mix(
+		fallbackLuminance,
+		clamp(mixedLuminance * 3.0, 0.12, 1.0),
+		confidence
+	);
+	vec3 chroma = mixed / max(max(mixed.r, max(mixed.g, mixed.b)), 0.0001);
+	return clamp(chroma * brightness, 0.0, 1.0);
 }
 
 vec2 rotate2d(vec2 v, float a) {
@@ -213,9 +235,8 @@ vec4 outsideProjection(vec2 p, vec2 halfSize, float cornerRadius) {
 	vec2 n = p / max(halfSize, vec2(1.0));
 	float seam = seamSoftness / r;
 	float under = smoothstep(0.02 - seam * 0.7, 0.9 + seam * 0.9, n.y);
-	vec3 causticColor = hueShift(vec3(1.0, 0.82, 0.46), uInternalHueShift);
-	vec3 coreColor = hueShift(vec3(0.78, 0.9, 1.0), uInternalHueShift);
-	vec3 glow = causticColor * caustic + coreColor * core * 0.34;
+	vec3 causticColor = dynamicCausticColor();
+	vec3 glow = causticColor * (caustic + core * 0.34);
 	vec3 light = clamp(glow * under * uCausticAmount, 0.0, 1.0);
     float lightAlpha = max(light.r, max(light.g, light.b));
     float shadowAlpha = saturate(shadow * uShadowAmount);

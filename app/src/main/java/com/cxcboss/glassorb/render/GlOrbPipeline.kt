@@ -20,6 +20,10 @@ internal class GlOrbPipeline(
         vertexSource,
         context.assets.open("shaders/effect.frag").bufferedReader().use { it.readText() },
     )
+    private val paletteProgram = GlProgram(
+        vertexSource,
+        context.assets.open("shaders/palette.frag").bufferedReader().use { it.readText() },
+    )
     private val containerProgram = GlProgram(
         vertexSource,
         context.assets.open("shaders/container.frag").bufferedReader().use { it.readText() },
@@ -30,6 +34,7 @@ internal class GlOrbPipeline(
     )
 
     private var effectTarget: RenderTarget? = null
+    private var paletteTarget: RenderTarget? = null
     private var sceneTarget: RenderTarget? = null
     private var targetWidth = 0
     private var targetHeight = 0
@@ -59,6 +64,7 @@ internal class GlOrbPipeline(
     fun render(snapshot: RenderSnapshot, width: Int, height: Int) {
         ensureTargets(width, height, snapshot.config.performance.renderScale)
         val effect = requireNotNull(effectTarget)
+        val palette = requireNotNull(paletteTarget)
         val scene = requireNotNull(sceneTarget)
         val config = snapshot.config
         val frame = ShapeFrame.from(snapshot, width, height, displayDensity)
@@ -122,6 +128,16 @@ internal class GlOrbPipeline(
             effectProgram.float("uRotation", config.dots.rotationSpeed)
             drawQuad()
 
+            palette.bind()
+            GLES30.glViewport(0, 0, palette.width, palette.height)
+            GLES30.glClearColor(0f, 0f, 0f, 0f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+            paletteProgram.use()
+            effect.bindTexture(0)
+            paletteProgram.int("uEffectTexture", 0)
+            paletteProgram.vec2("uEffectResolution", effect.width.toFloat(), effect.height.toFloat())
+            drawQuad()
+
             scene.bind()
             GLES30.glViewport(0, 0, targetWidth, targetHeight)
             GLES30.glClearColor(0f, 0f, 0f, 0f)
@@ -147,6 +163,8 @@ internal class GlOrbPipeline(
         glassProgram.use()
         scene.bindTexture(0)
         glassProgram.int("uSceneTexture", 0)
+        palette.bindTexture(1)
+        glassProgram.int("uPaletteTexture", 1)
         glassProgram.vec2("uResolution", width.toFloat(), height.toFloat())
         glassProgram.vec2("uCanvasSize", width.toFloat(), height.toFloat())
         glassProgram.vec2("uPanelOrigin", centerX - shapeWidth * 0.5f, topPad)
@@ -195,10 +213,13 @@ internal class GlOrbPipeline(
 
     fun release() {
         effectTarget?.release()
+        paletteTarget?.release()
         sceneTarget?.release()
         effectTarget = null
+        paletteTarget = null
         sceneTarget = null
         effectProgram.release()
+        paletteProgram.release()
         containerProgram.release()
         glassProgram.release()
         GLES30.glDeleteBuffers(1, vertexBuffer, 0)
@@ -211,6 +232,7 @@ internal class GlOrbPipeline(
         val scaledHeight = max(1, (height * safeScale).roundToInt())
         if (targetWidth == scaledWidth && targetHeight == scaledHeight && targetScale == safeScale) return
         effectTarget?.release()
+        paletteTarget?.release()
         sceneTarget?.release()
         targetWidth = scaledWidth
         targetHeight = scaledHeight
@@ -218,6 +240,7 @@ internal class GlOrbPipeline(
         scenePopulated = false
         val squareSize = max(scaledWidth, scaledHeight)
         effectTarget = RenderTarget(squareSize, squareSize)
+        paletteTarget = RenderTarget(1, 1)
         sceneTarget = RenderTarget(scaledWidth, scaledHeight)
     }
 
