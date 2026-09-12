@@ -15,6 +15,11 @@ data class IntRect(
     val height: Int get() = bottom - top
 }
 
+data class ExpandedFrameGeometry(
+    val bounds: IntRect,
+    val visualBottomPx: Int,
+)
+
 object OverlayLayout {
     const val WINDOW_TOP_PADDING_DP = 0f
 
@@ -173,7 +178,13 @@ object OverlayLayout {
         geometry: GeometryConfig,
         display: RotationDisplayGeometry,
         density: Float,
-    ): IntRect {
+    ): IntRect = expandedFrame(geometry, display, density).bounds
+
+    fun expandedFrame(
+        geometry: GeometryConfig,
+        display: RotationDisplayGeometry,
+        density: Float,
+    ): ExpandedFrameGeometry {
         val visualSizeDp = expandedCanvasDp(geometry)
         val size = max(visualSizeDp, MIN_TOUCH_DP).dpToPx(density)
         val dropDp = if (geometry.expandBelowCapsule) {
@@ -194,7 +205,20 @@ object OverlayLayout {
         )
         val topRoom = EXPAND_REBOUND_TOP_MARGIN_PX.roundToInt()
             .coerceAtMost((placed.top - display.safeBounds.top).coerceAtLeast(0))
-        return if (topRoom == 0) placed else placed.copy(top = placed.top - topRoom)
+        val bounds = if (topRoom == 0) placed else placed.copy(top = placed.top - topRoom)
+        val orbTopPx = collapsed.top + geometry.capsuleHeightDp.dpToPx(density) +
+            if (geometry.expandBelowCapsule) EXPAND_BELOW_GAP_PX.roundToInt() else 0
+        val orbExtentDp = maxOf(
+            geometry.orbWidthDp,
+            geometry.orbHeightDp,
+            geometry.orbWidthDp * geometry.effectScale,
+            geometry.orbHeightDp * geometry.effectScale,
+        ) + geometry.outerMarginDp
+        return ExpandedFrameGeometry(
+            bounds = bounds,
+            visualBottomPx = (orbTopPx + orbExtentDp.dpToPx(density))
+                .coerceIn(bounds.top, bounds.bottom),
+        )
     }
 
     const val EXPAND_BELOW_GAP_PX = 20f
@@ -219,18 +243,7 @@ object OverlayLayout {
         geometry: GeometryConfig,
         display: RotationDisplayGeometry,
         density: Float,
-    ): Int {
-        val capsule = collapsedBounds(geometry, display, density)
-        val orbTopPx = capsule.top + geometry.capsuleHeightDp.dpToPx(density) +
-            if (geometry.expandBelowCapsule) EXPAND_BELOW_GAP_PX.roundToInt() else 0
-        val orbExtentDp = maxOf(
-            geometry.orbWidthDp,
-            geometry.orbHeightDp,
-            geometry.orbWidthDp * geometry.effectScale,
-            geometry.orbHeightDp * geometry.effectScale,
-        ) + geometry.outerMarginDp
-        return orbTopPx + orbExtentDp.dpToPx(density)
-    }
+    ): Int = expandedFrame(geometry, display, density).visualBottomPx
 
     fun expandedCanvasDp(geometry: GeometryConfig): Float = maxOf(
         maxOf(geometry.orbWidthDp, geometry.orbHeightDp) * geometry.effectScale,

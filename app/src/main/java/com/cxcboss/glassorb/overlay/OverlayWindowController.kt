@@ -175,7 +175,8 @@ class OverlayWindowController(
             onRenderFailure = { error -> onFatalError(error.message ?: "OpenGL 渲染初始化失败") }
         }
         val display = displayGeometry()
-        val bounds = OverlayLayout.expandedBounds(config.geometry, display, density)
+        val expandedFrame = OverlayLayout.expandedFrame(config.geometry, display, density)
+        val bounds = expandedFrame.bounds
         val collapsed = OverlayLayout.collapsedBounds(config.geometry, display, density)
         windowMotion.setExpandedWindow(OverlayLayout.anchorOffsets(bounds, collapsed, density))
         val layoutParams = createLayoutParams(bounds, touchable = true)
@@ -191,7 +192,7 @@ class OverlayWindowController(
         val target = View(context).apply { setOnTouchListener(::onTouch) }
         val targetParams = createLayoutParams(touchBounds, touchable = true)
         val dimView = BackgroundDimView(context)
-        val dimParams = createBackgroundDimParams()
+        val dimParams = createBackgroundDimParams(display.physicalBounds)
         return try {
             // Place the static dim layer below the GL surface and touch proxy.
             windowManager.addView(dimView, dimParams)
@@ -207,20 +208,20 @@ class OverlayWindowController(
             touchView = target
             touchParams = targetParams
             AccessibilityOverlayBridge.updateTouchBounds(
-                if (AccessibilityOverlayBridge.isConnected()) currentAccessibilityTouchBounds() else null,
+                if (AccessibilityOverlayBridge.isConnected()) currentAccessibilityTouchBounds(display) else null,
             )
             val now = System.nanoTime()
             originNanos = now
             stateStartNanos = now
             lastFrameNanos = 0L
             forceRender = true
-            updateBackgroundDim()
+            updateBackgroundDim(display, expandedFrame)
             postFrame()
             // The accessibility service can observe the assistant before the
             // overlay view is created. Replay that state now so the first
             // visible assistant window is not lost during startup.
             AccessibilityOverlayBridge.replayAssistantWindowState()
-            updateStatusBarVisibilityMonitor()
+            updateStatusBarVisibilityMonitor(display)
             schedulePermissionCheck()
             true
         } catch (error: Throwable) {
@@ -286,11 +287,12 @@ class OverlayWindowController(
     }
 
     /** Returns the capsule proxy bounds for the status-bar edge case. */
-    internal fun currentAccessibilityTouchBounds(): IntRect? {
+    internal fun currentAccessibilityTouchBounds(
+        display: RotationDisplayGeometry = displayGeometry(),
+    ): IntRect? {
         if (accessibilityWindow || view == null || fullscreenAutoHidden ||
             fullscreenTransition != FullscreenCapsulePhase.None
         ) return null
-        val display = displayGeometry()
         return if (stateMachine.state == OverlayState.Collapsed) {
             OverlayLayout.capsuleTouchBounds(config.geometry, display, density)
         } else null
@@ -323,22 +325,24 @@ class OverlayWindowController(
     fun updateConfig(config: OrbConfig) {
         this.config = config.normalized()
         windowMotion.updateMotion(this.config.motion)
-        updateBounds()
-        updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
-        updateBackgroundDim()
-        updateStatusBarVisibilityMonitor()
-        updateFullscreenVisibility()
+        val display = displayGeometry()
+        val expandedFrame = OverlayLayout.expandedFrame(this.config.geometry, display, density)
+        updateBounds(display, expandedFrame)
+        updateTouchBounds(stateMachine.state != OverlayState.Collapsed, display)
+        updateStatusBarVisibilityMonitor(display)
+        updateFullscreenVisibility(display, expandedFrame)
         if (stateMachine.state == OverlayState.Wave) scheduleAutoCollapse()
         forceRender = true
         postFrame()
     }
 
     fun onConfigurationChanged() {
-        updateBounds()
-        updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
-        updateBackgroundDim()
-        updateStatusBarVisibilityMonitor()
-        updateFullscreenVisibility()
+        val display = displayGeometry()
+        val expandedFrame = OverlayLayout.expandedFrame(config.geometry, display, density)
+        updateBounds(display, expandedFrame)
+        updateTouchBounds(stateMachine.state != OverlayState.Collapsed, display)
+        updateStatusBarVisibilityMonitor(display)
+        updateFullscreenVisibility(display, expandedFrame)
         forceRender = true
         postFrame()
     }
@@ -511,7 +515,7 @@ class OverlayWindowController(
                 fullscreenCapsuleSquareProgress = fullscreenFrame.squareProgress,
                 fullscreenCapsuleOpacity = fullscreenFrame.opacity,
             )
-            updateShapeInputRegion(snapshot)
+            updateShapeInputRegion(snapshot, displayGeometry())
             textureView.submit(snapshot)
         }
         val pressIsSettled = isSettled(pressSpring, pressSpring.target)
@@ -756,18 +760,20 @@ class OverlayWindowController(
         velocityTracker = null
     }
 
-    private fun updateBounds() {
+    private fun updateBounds(
+        display: RotationDisplayGeometry,
+        expandedFrame: ExpandedFrameGeometry,
+    ) {
         val textureView = view ?: return
         val layoutParams = params ?: return
-        val display = displayGeometry()
-        val bounds = OverlayLayout.expandedBounds(config.geometry, display, density)
+        val bounds = expandedFrame.bounds
         val collapsed = OverlayLayout.collapsedBounds(config.geometry, display, density)
         val layoutChanged = layoutParams.width != bounds.width || layoutParams.height != bounds.height ||
             layoutParams.x != bounds.left || layoutParams.y != bounds.top
         if (!layoutChanged) {
             windowMotion.setExpandedWindow(OverlayLayout.anchorOffsets(bounds, collapsed, density))
             updateHostBounds()
-            updateBackgroundDim()
+            updateBackgroundDim(display, expandedFrame)
             return
         }
         windowMotion.setExpandedWindow(OverlayLayout.anchorOffsets(bounds, collapsed, density))
@@ -780,7 +786,7 @@ class OverlayWindowController(
         try {
             textureView.layoutParams = FrameLayout.LayoutParams(bounds.width, bounds.height)
             updateHostBounds()
-            updateBackgroundDim()
+            updateBackgroundDim(display, expandedFrame)
         } catch (error: Throwable) {
             onFatalError(error.message ?: "无法更新悬浮窗位置")
         }
@@ -832,7 +838,10 @@ class OverlayWindowController(
         markStateStart()
     }
 
-    private fun updateTouchBounds(expanded: Boolean) {
+    private fun updateTouchBounds(
+        expanded: Boolean,
+        display: RotationDisplayGeometry = displayGeometry(),
+    ) {
         val target = touchView ?: return
         // The GL host supplies the exact animated shape region while expanded.
         // A rectangular proxy would intercept the transparent circle corners.
@@ -840,7 +849,6 @@ class OverlayWindowController(
             fullscreenTransition != FullscreenCapsulePhase.None
         ) View.INVISIBLE else View.VISIBLE
         val layoutParams = touchParams ?: return
-        val display = displayGeometry()
         val bounds = touchBounds(expanded, display)
         AccessibilityOverlayBridge.updateTouchBounds(
             if (AccessibilityOverlayBridge.isConnected() && !accessibilityWindow) {
@@ -859,21 +867,24 @@ class OverlayWindowController(
             .onFailure { onFatalError(it.message ?: "无法更新触摸区域") }
     }
 
-    private fun updateStatusBarVisibilityMonitor() {
+    private fun updateStatusBarVisibilityMonitor(display: RotationDisplayGeometry? = null) {
         mainHandler.removeCallbacks(statusBarVisibilityCheck)
         if (view == null || !screenOn) return
         if (!config.geometry.hideWhenStatusBarHidden) {
-            updateStatusBarHidden(false)
+            updateStatusBarHidden(false, display)
             return
         }
-        updateStatusBarHidden(!isStatusBarVisible())
+        updateStatusBarHidden(!isStatusBarVisible(), display)
         mainHandler.postDelayed(statusBarVisibilityCheck, STATUS_BAR_VISIBILITY_CHECK_MS)
     }
 
-    private fun updateStatusBarHidden(hidden: Boolean) {
+    private fun updateStatusBarHidden(
+        hidden: Boolean,
+        display: RotationDisplayGeometry? = null,
+    ) {
         if (statusBarHidden == hidden) return
         statusBarHidden = hidden
-        updateFullscreenVisibility()
+        updateFullscreenVisibility(display ?: displayGeometry())
     }
 
     /**
@@ -881,9 +892,13 @@ class OverlayWindowController(
      * Keep the overlay service alive so a system assistant can immediately
      * reveal the orb even while the foreground app is immersive fullscreen.
      */
-    private fun updateFullscreenVisibility() {
+    private fun updateFullscreenVisibility(
+        display: RotationDisplayGeometry = displayGeometry(),
+        expandedFrame: ExpandedFrameGeometry? = null,
+    ) {
         val hiddenByFullscreen = config.geometry.hideWhenStatusBarHidden && statusBarHidden
-        val hiddenByLandscape = config.geometry.hideWhenLandscape && isLandscape()
+        val hiddenByLandscape = config.geometry.hideWhenLandscape &&
+            display.physicalBounds.width > display.physicalBounds.height
         val shouldHide = (hiddenByFullscreen || hiddenByLandscape) && !systemAssistantWindowVisible
         val targetPhase = if (shouldHide) {
             FullscreenCapsulePhase.Hiding
@@ -924,7 +939,7 @@ class OverlayWindowController(
             inputRegion?.update(Region())
             renderHost?.visibility = View.VISIBLE
             backgroundDimView?.visibility = View.VISIBLE
-            updateBackgroundDim()
+            updateBackgroundDim(display, expandedFrame)
         } else {
             fullscreenCapsuleSpring.configure(FULLSCREEN_SHOW_RESPONSE, FULLSCREEN_SHOW_DAMPING)
             fullscreenCapsuleSpring.seed(
@@ -934,10 +949,10 @@ class OverlayWindowController(
             )
             renderHost?.visibility = View.VISIBLE
             backgroundDimView?.visibility = View.VISIBLE
-            updateBackgroundDim()
+            updateBackgroundDim(display, expandedFrame)
         }
         inputRegion?.update(Region())
-        updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
+        updateTouchBounds(stateMachine.state != OverlayState.Collapsed, display)
         forceRender = true
         lastRenderSubmitNanos = 0L
         postFrame()
@@ -976,7 +991,10 @@ class OverlayWindowController(
         return view?.rootWindowInsets?.systemWindowInsetTop?.let { it > 0 } ?: true
     }
 
-    private fun updateShapeInputRegion(snapshot: RenderSnapshot) {
+    private fun updateShapeInputRegion(
+        snapshot: RenderSnapshot,
+        display: RotationDisplayGeometry,
+    ) {
         val canvas = params ?: return
         if (fullscreenAutoHidden || fullscreenTransition != FullscreenCapsulePhase.None) {
             inputRegion?.update(Region())
@@ -990,7 +1008,7 @@ class OverlayWindowController(
         }
         val region = Region()
         if (snapshot.state == OverlayState.Collapsed) {
-            val bounds = OverlayLayout.capsuleTouchBounds(config.geometry, displayGeometry(), density)
+            val bounds = OverlayLayout.capsuleTouchBounds(config.geometry, display, density)
             region.set(bounds.left - canvas.x, bounds.top - canvas.y,
                 bounds.right - canvas.x, bounds.bottom - canvas.y)
         } else {
@@ -1004,6 +1022,9 @@ class OverlayWindowController(
     }
 
     private fun displayGeometry(): RotationDisplayGeometry {
+        @Suppress("DEPRECATION")
+        val display = windowManager.defaultDisplay
+        val rotation = display.rotation
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val metrics = windowManager.currentWindowMetrics
             val bounds = metrics.bounds
@@ -1017,17 +1038,15 @@ class OverlayWindowController(
                 safeBounds = OverlayLayout.safeBoundsForDisplay(
                     displayBounds = physicalBounds,
                     systemInsets = systemInsets,
-                    landscape = isLandscape(),
+                    landscape = physicalBounds.width > physicalBounds.height,
                 ),
                 systemInsets = systemInsets,
-                rotation = currentRotation(),
+                rotation = rotation,
             )
         } else {
-            @Suppress("DEPRECATION")
-            val display = windowManager.defaultDisplay
             val point = Point().also(display::getRealSize)
             val physicalBounds = IntRect(0, 0, point.x, point.y)
-            val landscape = isLandscape()
+            val landscape = physicalBounds.width > physicalBounds.height
             val systemInsets = legacyDisplayInsets(display, landscape)
             RotationDisplayGeometry(
                 physicalBounds = physicalBounds,
@@ -1037,14 +1056,9 @@ class OverlayWindowController(
                     landscape = landscape,
                 ),
                 systemInsets = systemInsets,
-                rotation = currentRotation(),
+                rotation = rotation,
             )
         }
-    }
-
-    private fun currentRotation(): Int {
-        @Suppress("DEPRECATION")
-        return windowManager.defaultDisplay.rotation
     }
 
     /**
@@ -1159,8 +1173,7 @@ class OverlayWindowController(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setFitInsetsTypes(0)
     }
 
-    private fun createBackgroundDimParams(): WindowManager.LayoutParams {
-        val physical = physicalBounds()
+    private fun createBackgroundDimParams(physical: IntRect): WindowManager.LayoutParams {
         return WindowManager.LayoutParams(
             physical.width,
             physical.height,
@@ -1195,12 +1208,18 @@ class OverlayWindowController(
         }
     }
 
-    private fun updateBackgroundDim() {
+    private fun updateBackgroundDim(
+        display: RotationDisplayGeometry = displayGeometry(),
+        expandedFrame: ExpandedFrameGeometry? = null,
+    ) {
         val dimView = backgroundDimView ?: return
         val dimParams = backgroundDimParams ?: return
-        val display = displayGeometry()
         val physical = display.physicalBounds
-        val gradientBottom = OverlayLayout.expandedVisualBottomPx(config.geometry, display, density)
+        val gradientBottom = (expandedFrame ?: OverlayLayout.expandedFrame(
+            config.geometry,
+            display,
+            density,
+        )).visualBottomPx
         val gradientHeight = (gradientBottom - physical.top).coerceIn(1, physical.height)
         val expanded = stateMachine.state != OverlayState.Collapsed &&
             stateMachine.state != OverlayState.Hidden && stateMachine.state != OverlayState.Collapsing
@@ -1229,16 +1248,6 @@ class OverlayWindowController(
             else -> config.motion.openResponse * 1.18f
         }
         return (response * 1_000f * 1.05f).roundToInt().toLong().coerceIn(300L, 900L)
-    }
-
-    private fun physicalBounds(): IntRect {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val bounds = windowManager.currentWindowMetrics.bounds
-            return IntRect(bounds.left, bounds.top, bounds.right, bounds.bottom)
-        }
-        @Suppress("DEPRECATION")
-        val point = Point().also(windowManager.defaultDisplay::getRealSize)
-        return IntRect(0, 0, point.x, point.y)
     }
 
     private fun removeView() {

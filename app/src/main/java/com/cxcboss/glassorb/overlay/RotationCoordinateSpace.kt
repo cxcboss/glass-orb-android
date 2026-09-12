@@ -63,9 +63,9 @@ object RotationCoordinateSpace {
         }
         return IntRect(
             left = portraitInsets.left,
-            top = 0,
+            top = portraitInsets.top,
             right = (size.width - portraitInsets.right).coerceAtLeast(portraitInsets.left),
-            bottom = (size.height - portraitInsets.bottom).coerceAtLeast(1),
+            bottom = (size.height - portraitInsets.bottom).coerceAtLeast(portraitInsets.top),
         )
     }
 

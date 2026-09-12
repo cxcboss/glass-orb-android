@@ -83,16 +83,37 @@ class RotationCoordinateSpaceTest {
         val display = RotationDisplayGeometry(
             physicalBounds = landscapeDisplay,
             safeBounds = IntRect(0, 0, 2280, 1080),
-            systemInsets = IntRect(left = 0, top = 0, right = 96, bottom = 24),
+            systemInsets = IntRect(left = 14, top = 22, right = 34, bottom = 46),
             rotation = 1,
         )
 
         val portraitSafe = RotationCoordinateSpace.portraitSafeBounds(display)
 
-        assertEquals(0, portraitSafe.left)
-        assertEquals(1056, portraitSafe.right)
-        assertEquals(0, portraitSafe.top)
-        assertEquals(2280, portraitSafe.bottom)
+        assertEquals(22, portraitSafe.left)
+        assertEquals(1034, portraitSafe.right)
+        assertEquals(34, portraitSafe.top)
+        assertEquals(2266, portraitSafe.bottom)
+    }
+
+    @Test
+    fun `portrait safe bounds preserve all four mapped edge insets`() {
+        val insets = IntRect(left = 14, top = 22, right = 34, bottom = 46)
+        val expected = mapOf(
+            0 to IntRect(14, 22, 1046, 2234),
+            1 to IntRect(22, 34, 1034, 2266),
+            2 to IntRect(34, 46, 1066, 2258),
+            3 to IntRect(46, 14, 1058, 2246),
+        )
+
+        for ((rotation, safe) in expected) {
+            val display = RotationDisplayGeometry(
+                physicalBounds = if (rotation == 1 || rotation == 3) landscapeDisplay else portraitDisplay,
+                safeBounds = IntRect(0, 0, 2280, 1080),
+                systemInsets = insets,
+                rotation = rotation,
+            )
+            assertEquals("rotation $rotation", safe, RotationCoordinateSpace.portraitSafeBounds(display))
+        }
     }
 
     @Test
@@ -138,5 +159,40 @@ class RotationCoordinateSpaceTest {
         assertEquals(160, orb.width)
         assertEquals(96, orb.height)
         assertEquals(68, orb.top - capsule.top)
+    }
+
+    @Test
+    fun `expanded and capsule touch bounds follow the mapped displayed shape`() {
+        val geometry = GeometryConfig(
+            capsuleWidthDp = 118f,
+            capsuleHeightDp = 48f,
+            orbWidthDp = 160f,
+            orbHeightDp = 96f,
+            enlargedTouchArea = true,
+            touchAreaScale = 2f,
+        )
+        val display = RotationDisplayGeometry(
+            physicalBounds = landscapeDisplay,
+            safeBounds = IntRect(96, 24, 2184, 1056),
+            systemInsets = IntRect(96, 0, 0, 24),
+            rotation = 1,
+        )
+        val capsule = OverlayLayout.collapsedBounds(geometry, display, 1f)
+        val capsuleTouch = OverlayLayout.capsuleTouchBounds(geometry, display, 1f)
+        val orbTouch = OverlayLayout.orbTouchBounds(geometry, display, 1f)
+        val expanded = OverlayLayout.expandedFrame(geometry, display, 1f)
+
+        assertTrue(capsule.left > display.safeBounds.width / 2)
+        assertTrue(capsuleTouch.left <= capsule.left)
+        assertTrue(capsuleTouch.right >= capsule.right)
+        assertEquals(display.safeBounds.right, capsuleTouch.right)
+        assertTrue(capsuleTouch.width >= capsule.width)
+        assertEquals(160, orbTouch.width)
+        assertEquals(96, orbTouch.height)
+        assertTrue(expanded.bounds.left >= display.safeBounds.left)
+        assertTrue(expanded.bounds.right <= display.safeBounds.right)
+        assertTrue(expanded.visualBottomPx <= expanded.bounds.bottom)
+        assertEquals(expanded.visualBottomPx,
+            OverlayLayout.expandedVisualBottomPx(geometry, display, 1f))
     }
 }

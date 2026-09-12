@@ -76,3 +76,48 @@ The same existing deprecation warnings were emitted; there were no test failures
 
 - No Android emulator or physical-device visual acceptance was available in this run. OEM-specific `WindowMetrics`/cutout/navigation inset behavior, especially during a live 180-degree transition, should still be checked on target hardware. Unit tests cover the deterministic coordinate and clamping rules.
 - The build retains the pre-existing deprecation warnings noted above.
+
+## Reviewer repair report
+
+Addressed the three Important findings:
+
+1. `RotationCoordinateSpace.portraitSafeBounds()` now preserves the mapped portrait `left`, `top`, `right`, and `bottom` insets for all four rotations. Tests assert the complete edge mapping for 0/90/180/270, including non-zero top/cutout values.
+2. `OverlayWindowController.displayGeometry()` now captures the `Display` object, rotation, physical bounds, and insets as one immutable `RotationDisplayGeometry` snapshot. API 29 still uses `getRealSize()` plus the existing root-window/system-dimension inset fallback. Configuration/rotation updates compute one `ExpandedFrameGeometry` and reuse the same display/frame through bounds, touch, and dim updates; initial creation also reuses the snapshot for dim parameters and accessibility touch bounds.
+3. Added `OverlayLayout.expandedFrame()`, which returns the final clamped/top-room-adjusted expanded bounds together with its clamped visual dim endpoint. `expandedBounds()`, `expandedVisualBottomPx()`, and controller dim updates reuse this final frame result.
+4. Added direct mapped-display regressions for capsule touch bounds, enlarged edge touch behavior, expanded/orb touch dimensions, and the final expanded-frame/dim endpoint relationship.
+
+### Repair verification
+
+Focused command:
+
+```text
+./gradlew testDebugUnitTest --tests '*RotationCoordinateSpaceTest' --tests '*OverlayLayoutTest' --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
+```
+
+Real result:
+
+```text
+> Task :app:testDebugUnitTest
+
+BUILD SUCCESSFUL in 19s
+31 actionable tasks: 31 executed
+```
+
+Full command:
+
+```text
+./gradlew testDebugUnitTest --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
+```
+
+Real result:
+
+```text
+> Task :app:testDebugUnitTest
+
+BUILD SUCCESSFUL in 17s
+31 actionable tasks: 31 executed
+```
+
+Both repair runs emitted only the existing deprecation warnings for
+`Display.getRealSize`, `MainActivity.statusBarColor`, and
+`MainActivity.navigationBarColor`; no test failures or compilation errors remained.
