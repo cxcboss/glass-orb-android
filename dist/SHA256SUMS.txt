@@ -11,3 +11,4 @@ c568edeaa44b3567cd632df83ca7194a98ed37b694660d251dd84ad01b3fb6a7  灵动玻璃�
 96191272ac2199b4c013dea8df6b90ca5b7266822fcdfc1e00235e361e62f39f  灵动玻璃球-2.0.20-物理位置动态焦散与背景模糊.apk
 5ed5dd865ffa4a886ff79dc9d294d0b06c07751d4535580878c163afd58f42cf  灵动玻璃球-2.0.21-设置工作区与实时预览优化.apk
 c7ae994c30696eb3b705bfe908f363cf1770092d2cf3e4302da6feecddc81ae0  灵动玻璃球-2.0.22-原生单栏设置与图标更新.apk
+c539ff4b2a3edd269bfd4ca59e45532614edb839ab36acce2b6c8c00da930a68  灵动玻璃球-2.0.23-状态栏位置与模糊修复.apk

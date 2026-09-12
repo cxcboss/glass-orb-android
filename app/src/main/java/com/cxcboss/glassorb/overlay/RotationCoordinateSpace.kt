@@ -71,7 +71,15 @@ object RotationCoordinateSpace {
         height = max(currentDisplay.width, currentDisplay.height),
     )
 
-    /** Converts current physical edge insets into the portrait reference. */
+    /**
+     * Converts current physical edge insets into the portrait reference.
+     *
+     * The top edge is intentionally not treated as a visual safe-area edge.
+     * The capsule is a system-bar overlay and its position slider must be able
+     * to place it inside the status-bar region. Insets still constrain the
+     * other edges so the fixed portrait coordinate space does not drift into
+     * the navigation area after rotation.
+     */
     fun portraitSafeBounds(display: RotationDisplayGeometry): IntRect {
         val size = portraitReferenceSize(display.physicalBounds)
         val insets = display.systemInsets
@@ -83,9 +91,9 @@ object RotationCoordinateSpace {
         }
         return IntRect(
             left = portraitInsets.left,
-            top = portraitInsets.top,
+            top = 0,
             right = (size.width - portraitInsets.right).coerceAtLeast(portraitInsets.left),
-            bottom = (size.height - portraitInsets.bottom).coerceAtLeast(portraitInsets.top),
+            bottom = (size.height - portraitInsets.bottom).coerceAtLeast(1),
         )
     }
 

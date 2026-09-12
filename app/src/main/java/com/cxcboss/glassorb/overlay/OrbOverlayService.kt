@@ -31,6 +31,7 @@ class OrbOverlayService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var controller: OverlayWindowController
     private lateinit var notificationManager: NotificationManager
+    private lateinit var xiaomiMemoryAdvisor: XiaomiMemoryAdvisor
     private var overlayVisible = false
     private var receiverRegistered = false
     private var preserveTerminalStatus = false
@@ -49,6 +50,8 @@ class OrbOverlayService : Service() {
         notificationManager = getSystemService(NotificationManager::class.java)
         createNotificationChannel()
         controller = OverlayWindowController(this, ::handleFatalError)
+        xiaomiMemoryAdvisor = XiaomiMemoryAdvisor(this, controller::onMemoryPressure)
+        xiaomiMemoryAdvisor.register()
         AccessibilityOverlayBridge.attachController(
             handler = controller::dispatchAccessibilityTouch,
             provider = controller::currentAccessibilityTouchBounds,
@@ -103,6 +106,7 @@ class OrbOverlayService : Service() {
 
     override fun onDestroy() {
         AccessibilityOverlayBridge.detachController()
+        xiaomiMemoryAdvisor.unregister()
         controller.destroy()
         if (receiverRegistered) {
             try {
@@ -114,6 +118,11 @@ class OrbOverlayService : Service() {
         serviceScope.cancel()
         if (!preserveTerminalStatus) OverlayRuntime.update(OverlayRuntimeStatus.Stopped)
         super.onDestroy()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_RUNNING_LOW) controller.onMemoryPressure()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

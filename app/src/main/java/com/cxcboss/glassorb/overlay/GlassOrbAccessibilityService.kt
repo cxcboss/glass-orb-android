@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.util.Log
 import android.view.Gravity
 import android.view.View
@@ -288,10 +289,18 @@ class GlassOrbAccessibilityService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         PixelFormat.TRANSLUCENT,
     ).apply {
-        gravity = Gravity.TOP or Gravity.START
+        // This is a physical-screen rectangle supplied by the controller.
+        // START would reinterpret x after a rotated RTL configuration.
+        gravity = Gravity.TOP or Gravity.LEFT
         x = bounds.left
         y = bounds.top
         title = "Glass orb trusted touch proxy"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            setFitInsetsTypes(0)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
     }
 
     private companion object {

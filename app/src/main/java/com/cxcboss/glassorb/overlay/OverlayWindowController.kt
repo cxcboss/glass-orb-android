@@ -354,6 +354,24 @@ class OverlayWindowController(
         updateBackgroundBlur()
     }
 
+    /**
+     * Releases idle producer work when the system reports memory pressure.
+     * The last submitted TextureView buffer remains visible, so this does not
+     * create a blank-frame flash. A later interaction calls postFrame(), which
+     * resumes the submit-driven GL loop before the next visual transition.
+     */
+    internal fun onMemoryPressure() {
+        if (view == null) return
+        if (stateMachine.state == OverlayState.Collapsed ||
+            stateMachine.state == OverlayState.Hidden ||
+            fullscreenAutoHidden
+        ) {
+            removeFrame()
+            view?.setPaused(true)
+        }
+        forceRender = false
+    }
+
     fun updateConfig(config: OrbConfig) {
         this.config = config.normalized()
         windowMotion.updateMotion(this.config.motion)
@@ -548,13 +566,11 @@ class OverlayWindowController(
                 presentationFrame = RenderPresentationFrame.from(
                     snapshot = this,
                     presentation = framePresentation,
-                    canvasX = params?.x ?: 0,
-                    canvasY = params?.y ?: 0,
                     density = density,
                 )
             }
             updateShapeInputRegion(snapshot)
-            updateBackgroundDim(framePresentation, snapshot.presentationFrame)
+            updateBackgroundDim(framePresentation)
             textureView.submit(snapshot)
         }
         val pressIsSettled = isSettled(pressSpring, pressSpring.target)
@@ -1277,9 +1293,8 @@ class OverlayWindowController(
     private fun updateBackgroundDim(
         display: RotationDisplayGeometry = displayGeometry(),
         expandedFrame: ExpandedFrameGeometry? = null,
-        renderFrame: RenderPresentationFrame? = null,
     ) {
-        updateBackgroundBlur(renderFrame)
+        updateBackgroundBlur(display)
         val dimView = backgroundDimView ?: return
         val dimParams = backgroundDimParams ?: return
         val physical = display.physicalBounds
@@ -1310,9 +1325,8 @@ class OverlayWindowController(
 
     private fun updateBackgroundDim(
         presentation: PresentationGeometry,
-        renderFrame: RenderPresentationFrame? = null,
     ) {
-        updateBackgroundDim(presentation.display, presentation.expandedFrame, renderFrame)
+        updateBackgroundDim(presentation.display, presentation.expandedFrame)
     }
 
     /** Keeps the dim layer's alpha transition on the same slower timing as the shape spring. */
@@ -1354,15 +1368,23 @@ class OverlayWindowController(
         }
     }
 
-    private fun updateBackgroundBlur(renderFrame: RenderPresentationFrame? = null) {
+    private fun updateBackgroundBlur(display: RotationDisplayGeometry = displayGeometry()) {
         val controller = backgroundBlurController ?: return
         val expanded = stateMachine.state == OverlayState.Wave || stateMachine.state == OverlayState.Thinking
         val visible = view != null && screenOn && expanded &&
             !fullscreenAutoHidden && fullscreenTransition == FullscreenCapsulePhase.None
-        // Attach the optional window only from the immutable frame that was
-        // submitted to GLES. This keeps blur bounds in lockstep with the
-        // rendered shape and avoids a one-frame geometry mismatch during a
-        // rotation or morph transition.
+        // Window-level background blur is a compositor effect. Its window must
+        // remain stable while the orb breathes and its contents animate;
+        // feeding the animated GLES bounds to WindowManager causes repeated
+        // Dialog layout transactions and visible surface flashing. The orb's
+        // settled touch bounds are the correct stable sampling aperture. They
+        // are refreshed by applyPendingLayoutUpdate when the user changes the
+        // geometry or the display changes, not once per rendered frame.
+        val stableBounds = if (visible) {
+            OverlayLayout.orbTouchBounds(config.geometry, display, density)
+        } else {
+            null
+        }
         controller.update(
             BackgroundBlurRequest(
                 userEnabled = config.container.backgroundBlurEnabled,
@@ -1372,8 +1394,8 @@ class OverlayWindowController(
                 } else {
                     false
                 },
-                visible = visible && renderFrame != null,
-                bounds = renderFrame?.shapeScreenBounds,
+                visible = visible,
+                bounds = stableBounds,
                 shape = BackgroundBlurPolicy.shapeFor(config.geometry),
             ),
         )

@@ -91,7 +91,7 @@ class RotationCoordinateSpaceTest {
 
         assertEquals(22, portraitSafe.left)
         assertEquals(1034, portraitSafe.right)
-        assertEquals(34, portraitSafe.top)
+        assertEquals(0, portraitSafe.top)
         assertEquals(2266, portraitSafe.bottom)
     }
 
@@ -99,10 +99,10 @@ class RotationCoordinateSpaceTest {
     fun `portrait safe bounds preserve all four mapped edge insets`() {
         val insets = IntRect(left = 14, top = 22, right = 34, bottom = 46)
         val expected = mapOf(
-            0 to IntRect(14, 22, 1046, 2234),
-            1 to IntRect(22, 34, 1034, 2266),
-            2 to IntRect(34, 46, 1066, 2258),
-            3 to IntRect(46, 14, 1058, 2246),
+            0 to IntRect(14, 0, 1046, 2234),
+            1 to IntRect(22, 0, 1034, 2266),
+            2 to IntRect(34, 0, 1066, 2258),
+            3 to IntRect(46, 0, 1058, 2246),
         )
 
         for ((rotation, safe) in expected) {
@@ -114,6 +114,25 @@ class RotationCoordinateSpaceTest {
             )
             assertEquals("rotation $rotation", safe, RotationCoordinateSpace.portraitSafeBounds(display))
         }
+    }
+
+    @Test
+    fun `capsule position slider can place visual island inside status bar`() {
+        val display = RotationDisplayGeometry(
+            physicalBounds = portraitDisplay,
+            safeBounds = IntRect(0, 0, 1080, 2208),
+            systemInsets = IntRect(left = 0, top = 96, right = 0, bottom = 72),
+            rotation = 0,
+        )
+
+        val capsule = OverlayLayout.collapsedBounds(
+            GeometryConfig(verticalOffsetDp = 0f, capsuleWidthDp = 118f, capsuleHeightDp = 34f),
+            display,
+            1f,
+        )
+
+        assertEquals(0, capsule.top)
+        assertTrue(capsule.bottom > capsule.top)
     }
 
     @Test
@@ -167,7 +186,7 @@ class RotationCoordinateSpaceTest {
         val below = normal.copy(expandBelowCapsule = true)
         val display = RotationDisplayGeometry(
             physicalBounds = portraitDisplay,
-            safeBounds = IntRect(0, 24, 1080, 2208),
+            safeBounds = IntRect(0, 0, 1080, 2208),
             systemInsets = IntRect(0, 24, 0, 72),
             rotation = 0,
         )
