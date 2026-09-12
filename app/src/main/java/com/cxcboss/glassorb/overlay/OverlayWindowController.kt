@@ -207,9 +207,6 @@ class OverlayWindowController(
         return try {
             // Place the static dim layer below the GL surface and touch proxy.
             windowManager.addView(dimView, dimParams)
-            // Attach the optional real Window before the GL host so enabling
-            // blur later cannot reorder it above the renderer.
-            blurController.show(OverlayLayout.orbTouchBounds(config.geometry, display, density))
             windowManager.addView(host, initialHostParams)
             inputRegion = WindowInputRegion(host)
             windowManager.addView(target, targetParams)

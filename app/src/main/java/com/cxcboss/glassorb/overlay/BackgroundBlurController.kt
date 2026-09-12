@@ -17,40 +17,48 @@ internal class BackgroundBlurController(
     private var bounds: IntRect? = null
     private var appliedRadius = 0
 
-    /** Attach the transparent window before the GL host is added. */
-    fun show(initialBounds: IntRect): Boolean {
-        if (destroyed) return false
+    /** Attach only for an already eligible request. */
+    fun show(request: BackgroundBlurRequest): Boolean {
+        if (destroyed || !isEligible(request)) return false
+        val initialBounds = request.bounds ?: return false
         if (attached) {
-            updateWindow(initialBounds, appliedRadius)
-            return true
+            if (bounds == initialBounds && appliedRadius == blurRadiusPx) return true
+            updateWindow(initialBounds, blurRadiusPx)
+            return attached
         }
-        val shown = runCatching { window.show(initialBounds, 0) }.getOrDefault(false)
+        val shown = runCatching { window.show(initialBounds, blurRadiusPx) }.getOrDefault(false)
         if (!shown) return false
         attached = true
         bounds = initialBounds
-        appliedRadius = 0
+        appliedRadius = blurRadiusPx
         return true
     }
 
     fun update(request: BackgroundBlurRequest) {
-        if (destroyed || !attached) return
-        val nextBounds = request.bounds ?: bounds ?: return
-        val nextRadius = if (BackgroundBlurPolicy.isEligible(
-                userEnabled = request.userEnabled,
-                apiLevel = request.apiLevel,
-                crossWindowBlurEnabled = request.crossWindowBlurEnabled,
-                visible = request.visible,
-                bounds = nextBounds,
-                shape = request.shape,
-            )
-        ) blurRadiusPx else 0
+        if (destroyed) return
+        if (!isEligible(request)) {
+            detach()
+            return
+        }
+        if (!attached) {
+            show(request)
+            return
+        }
+        val nextBounds = request.bounds ?: return
+        val nextRadius = blurRadiusPx
         if (nextBounds == bounds && nextRadius == appliedRadius) return
         updateWindow(nextBounds, nextRadius)
     }
 
     fun hide() {
-        if (!attached || destroyed) return
+        if (destroyed) return
+        detach()
+    }
+
+    private fun detach() {
+        if (!attached) return
         runCatching { window.hide() }
+        runCatching { window.destroy() }
         attached = false
         bounds = null
         appliedRadius = 0
@@ -58,8 +66,7 @@ internal class BackgroundBlurController(
 
     fun destroy() {
         if (destroyed) return
-        hide()
-        runCatching { window.destroy() }
+        detach()
         destroyed = true
     }
 
@@ -72,9 +79,16 @@ internal class BackgroundBlurController(
         }
         // A detached/stale Dialog must never take down the existing orb. Drop
         // this optional layer and leave the normal GL/dim/touch stack intact.
-        runCatching { window.hide() }
-        attached = false
-        bounds = null
-        appliedRadius = 0
+        detach()
     }
+
+    private fun isEligible(request: BackgroundBlurRequest): Boolean =
+        BackgroundBlurPolicy.isEligible(
+            userEnabled = request.userEnabled,
+            apiLevel = request.apiLevel,
+            crossWindowBlurEnabled = request.crossWindowBlurEnabled,
+            visible = request.visible,
+            bounds = request.bounds,
+            shape = request.shape,
+        )
 }

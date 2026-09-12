@@ -12,7 +12,7 @@
 - 新增 `BackgroundBlurPolicy`：仅 API 31+、用户开启、`WindowManager.isCrossWindowBlurEnabled == true`、可见展开态、圆形且有效的 exact orb bounds 才允许 blur；独立 `orbWidthDp != orbHeightDp` 直接标记为 ellipse 并只关闭 blur。
 - 新增可测试的 `BackgroundBlurController` 与 `BackgroundBlurWindow` seam，更新无变化时不重复调用；隐藏、销毁和更新失败均安全幂等，失败只丢弃可选 blur 层。
 - 新增 `AndroidBackgroundBlurWindow`：使用真实透明 Dialog/Window，依据现有 accessibility/application overlay 上下文设置窗口类型；flags 为 `NOT_FOCUSABLE | NOT_TOUCHABLE | LAYOUT_IN_SCREEN`，透明圆形 background，清除 dim，不使用 `FLAG_BLUR_BEHIND` 或隐藏 API。
-- Overlay 显示时先在既有 dim 层之后、GL host 之前挂载透明 blur Window，保持 GL host 在其上方。展开/收起、shape、rotation/configuration、fullscreen visibility、screen on/off、capability listener 和 destroy 均通过同一 controller 更新或清理。
+- Overlay 的 blur controller 与既有 GL host/dim/touch 生命周期绑定；只有请求合格时才创建可选 Dialog。展开/收起、shape、rotation/configuration、fullscreen visibility、screen on/off、capability listener 和 destroy 均通过同一 controller 更新或清理。
 
 ## TDD 与验证
 
@@ -41,3 +41,30 @@ Full 结果 XML 显示 20 个 test suites、102 个 tests，failures/errors 均�
 ## 提交
 
 待本报告写入后创建本 Task 3 专用提交。
+
+## 复审修复（2026-09-12）
+
+复审指出的生命周期问题已修复。此前 `OverlayWindowController.show()` 无条件调用 `BackgroundBlurController.show(IntRect)`，即使 collapsed、默认关闭、API<31、capability 关闭或椭圆状态也会创建透明 Dialog。现在 controller 的 `show/update` 都接受 `BackgroundBlurRequest` 并先调用纯 `BackgroundBlurPolicy.isEligible()`：
+
+- 不合格初始 request 直接返回，不调用 `BackgroundBlurWindow.show`，因此不创建/attach 透明层。
+- 合格的 user-enabled、API31+、cross-window blur、expanded visible、circular、valid square bounds 才 attach，并直接应用固定 blur radius。
+- 已 attach 后若开关关闭、capability 关闭、进入 fullscreen/screen-off、变成 ellipse 或 bounds 无效，立即 `hide()` + `destroy()`；恢复合格条件时允许重新 attach。
+- 未改变既有 GL host、dim window 或 touch window；Dialog 创建/更新失败只 detach 可选 blur 层。
+
+本次 focused 实际输出：
+
+```text
+./gradlew testDebugUnitTest --tests 'com.cxcboss.glassorb.overlay.BackgroundBlurPolicyTest' --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
+BUILD SUCCESSFUL in 44s
+31 actionable tasks: 31 executed
+```
+
+本次 full 实际输出：
+
+```text
+./gradlew testDebugUnitTest --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
+BUILD SUCCESSFUL in 44s
+31 actionable tasks: 31 executed
+```
+
+两次输出均只有既有 `Display.getRealSize`、`statusBarColor`、`navigationBarColor` deprecated warnings，无编译错误或测试失败。真机 SurfaceFlinger blur 视觉验证仍未完成。

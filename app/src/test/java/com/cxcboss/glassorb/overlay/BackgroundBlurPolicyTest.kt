@@ -47,23 +47,31 @@ class BackgroundBlurPolicyTest {
     }
 
     @Test
-    fun `controller does not repeat unchanged updates and cleanup`() {
+    fun `controller gates initial attach and destroys optional window when request becomes ineligible`() {
         val host = RecordingBlurWindow()
         val controller = BackgroundBlurController(host, blurRadiusPx = 32)
         val request = BackgroundBlurRequest(true, 31, true, true, square, BlurShape.Circular)
 
-        assertTrue(controller.show(square))
+        assertFalse(controller.show(request.copy(visible = false)))
+        assertTrue(host.events.isEmpty())
         controller.update(request)
         controller.update(request)
         controller.update(request.copy(shape = BlurShape.Ellipse))
         controller.update(request.copy(shape = BlurShape.Ellipse))
+        controller.update(request.copy(visible = false))
+        controller.update(request)
         controller.hide()
         controller.hide()
         controller.destroy()
         controller.destroy()
 
         assertEquals(
-            listOf("show:0:${square.width}x${square.height}", "update:32", "update:0", "hide", "destroy"),
+            listOf(
+                "show:32:${square.width}x${square.height}",
+                "hide", "destroy",
+                "show:32:${square.width}x${square.height}",
+                "hide", "destroy",
+            ),
             host.events,
         )
     }
