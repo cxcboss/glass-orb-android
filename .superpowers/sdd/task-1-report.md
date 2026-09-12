@@ -121,3 +121,50 @@ BUILD SUCCESSFUL in 17s
 Both repair runs emitted only the existing deprecation warnings for
 `Display.getRealSize`, `MainActivity.statusBarColor`, and
 `MainActivity.navigationBarColor`; no test failures or compilation errors remained.
+
+## Follow-up repair: same-frame presentation and stable rotation reads
+
+### Implementation
+
+- Added `PresentationGeometry` so one frame owns its `RotationDisplayGeometry`
+  and `ExpandedFrameGeometry`. `RenderSnapshot` carries that immutable context;
+  the frame input-region update and background-dim update reuse it, with no
+  second `displayGeometry()` read after snapshot construction.
+- API 30+ display reads now pair `currentWindowMetrics` with rotation reads,
+  retry three times, accept the newest sample whose before/after rotation and
+  geometry rotation agree, and retain the previous coherent snapshot while a
+  rotation transition remains unstable.
+- API 29 continues to use `Display.getRealSize()` and the existing root-window
+  or system-dimension inset fallback; the already-read rotation is passed into
+  that fallback instead of being read again.
+- Added pure tests for stable-sample rejection/fallback, same-frame
+  presentation context, all rotation edge-inset mappings, and axis-aligned
+  mapped bounds.
+
+### Follow-up verification
+
+Focused rotation/layout tests:
+
+```text
+./gradlew testDebugUnitTest --tests '*RotationCoordinateSpaceTest' --tests '*OverlayLayoutTest' --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
+```
+
+Real result: `BUILD SUCCESSFUL in 19s` (`31 actionable tasks: 31 executed`).
+
+Full debug unit-test suite:
+
+```text
+./gradlew testDebugUnitTest --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
+```
+
+Real result: `BUILD SUCCESSFUL in 18s` (`31 actionable tasks: 31 executed`).
+
+Both runs emitted only the existing deprecation warnings for
+`Display.getRealSize`, `MainActivity.statusBarColor`, and
+`MainActivity.navigationBarColor`.
+
+### Follow-up concerns
+
+- No Android emulator or physical-device visual acceptance was available in
+  this run; live OEM rotation and inset behavior remains a hardware check.
+- The pre-existing deprecation warnings remain.

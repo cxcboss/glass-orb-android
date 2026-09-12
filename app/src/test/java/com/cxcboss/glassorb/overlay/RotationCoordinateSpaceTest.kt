@@ -195,4 +195,47 @@ class RotationCoordinateSpaceTest {
         assertEquals(expanded.visualBottomPx,
             OverlayLayout.expandedVisualBottomPx(geometry, display, 1f))
     }
+
+    @Test
+    fun `stable geometry selection rejects a rotation transition sample`() {
+        val previous = RotationDisplayGeometry(
+            physicalBounds = portraitDisplay,
+            safeBounds = IntRect(0, 24, 1080, 2208),
+            systemInsets = IntRect(0, 24, 0, 72),
+            rotation = 0,
+        )
+        val transition = RotationDisplaySample(
+            geometry = RotationDisplayGeometry(
+                physicalBounds = landscapeDisplay,
+                safeBounds = IntRect(0, 0, 2280, 1056),
+                systemInsets = IntRect(0, 0, 0, 24),
+                rotation = 1,
+            ),
+            rotationBefore = 1,
+            rotationAfter = 0,
+        )
+        val stable = transition.copy(rotationAfter = 1)
+
+        assertEquals(stable.geometry,
+            RotationCoordinateSpace.selectStableGeometry(listOf(transition, stable), previous))
+        assertEquals(previous,
+            RotationCoordinateSpace.selectStableGeometry(listOf(transition), previous))
+    }
+
+    @Test
+    fun `presentation snapshot retains one display geometry and final expanded frame`() {
+        val display = RotationDisplayGeometry(
+            physicalBounds = landscapeDisplay,
+            safeBounds = IntRect(0, 0, 2280, 1080),
+            systemInsets = IntRect(0, 0, 0, 0),
+            rotation = 1,
+        )
+        val snapshot = OverlayLayout.presentationSnapshot(GeometryConfig(), display, 1f)
+
+        assertEquals(display, snapshot.display)
+        assertEquals(snapshot.expandedFrame,
+            OverlayLayout.expandedFrame(GeometryConfig(), snapshot.display, 1f))
+        assertEquals(snapshot.expandedFrame.visualBottomPx,
+            OverlayLayout.expandedVisualBottomPx(GeometryConfig(), snapshot.display, 1f))
+    }
 }

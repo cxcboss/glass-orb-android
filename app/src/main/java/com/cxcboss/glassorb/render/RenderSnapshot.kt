@@ -4,6 +4,7 @@ import com.cxcboss.glassorb.model.OrbConfig
 import com.cxcboss.glassorb.motion.DragDeformation
 import com.cxcboss.glassorb.motion.FrequencyBands
 import com.cxcboss.glassorb.overlay.OverlayState
+import com.cxcboss.glassorb.overlay.PresentationGeometry
 
 data class RenderWeights(
     val wave: Float,
@@ -48,4 +49,6 @@ data class RenderSnapshot(
     val fullscreenCapsuleScale: Float = 1f,
     val fullscreenCapsuleSquareProgress: Float = 0f,
     val fullscreenCapsuleOpacity: Float = 1f,
+    /** Display/layout context captured for this exact presentation frame. */
+    val presentation: PresentationGeometry? = null,
 )

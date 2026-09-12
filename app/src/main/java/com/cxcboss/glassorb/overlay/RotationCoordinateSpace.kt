@@ -14,12 +14,32 @@ data class RotationDisplayGeometry(
     val rotation: Int,
 )
 
+/** One paired read of display metrics and the display rotation. */
+data class RotationDisplaySample(
+    val geometry: RotationDisplayGeometry,
+    val rotationBefore: Int,
+    val rotationAfter: Int,
+) {
+    val isStable: Boolean
+        get() = rotationBefore == rotationAfter && geometry.rotation == rotationBefore
+}
+
 /**
  * Maps points from the display's portrait reference space to its physical
  * current-space coordinates. Rectangles are deliberately not rotated: the
  * overlay content remains an axis-aligned portrait shape.
  */
 object RotationCoordinateSpace {
+    /**
+     * Chooses the newest sample whose metrics and rotation agree. If the
+     * display is mid-transition, retain the last known coherent snapshot so
+     * layout and input do not consume a mixed orientation.
+     */
+    fun selectStableGeometry(
+        samples: List<RotationDisplaySample>,
+        previous: RotationDisplayGeometry?,
+    ): RotationDisplayGeometry? = samples.lastOrNull(RotationDisplaySample::isStable)?.geometry ?: previous
+
     fun mapPortraitPoint(point: FloatPoint, currentDisplay: IntRect, rotation: Int): FloatPoint {
         val size = portraitReferenceSize(currentDisplay)
         val mapped = when (rotation) {

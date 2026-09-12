@@ -20,8 +20,23 @@ data class ExpandedFrameGeometry(
     val visualBottomPx: Int,
 )
 
+/** All geometry needed to present one frame consistently across surfaces. */
+data class PresentationGeometry(
+    val display: RotationDisplayGeometry,
+    val expandedFrame: ExpandedFrameGeometry,
+)
+
 object OverlayLayout {
     const val WINDOW_TOP_PADDING_DP = 0f
+
+    fun presentationSnapshot(
+        geometry: GeometryConfig,
+        display: RotationDisplayGeometry,
+        density: Float,
+    ): PresentationGeometry = PresentationGeometry(
+        display = display,
+        expandedFrame = expandedFrame(geometry, display, density),
+    )
 
     /**
      * Selects the display-safe rectangle while keeping the island in its

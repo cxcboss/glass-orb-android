@@ -83,6 +83,7 @@ class OverlayWindowController(
     private var lastRenderSubmitNanos = 0L
     private var forceRender = false
     private var showDarkCapsuleOutline = false
+    private var lastStableDisplayGeometry: RotationDisplayGeometry? = null
     private var collapseReleaseVelocityDpPerSecond = 0f
     private var collapseDirection = 0
     private var systemAssistantWindowVisible = false
@@ -365,6 +366,9 @@ class OverlayWindowController(
         framePosted = false
         val textureView = view ?: return
         if (!screenOn) return
+        val framePresentation: PresentationGeometry by lazy {
+            OverlayLayout.presentationSnapshot(config.geometry, displayGeometry(), density)
+        }
 
         val deltaSeconds = if (lastFrameNanos == 0L) 0f else {
             ((frameTimeNanos - lastFrameNanos) / 1_000_000_000.0).toFloat().coerceIn(0f, 0.05f)
@@ -399,12 +403,12 @@ class OverlayWindowController(
 
         when (fullscreenTransition) {
             FullscreenCapsulePhase.Hiding -> if (isSettled(fullscreenCapsuleSpring, 0f)) {
-                finishFullscreenHide()
+                finishFullscreenHide(framePresentation)
                 return
             }
 
             FullscreenCapsulePhase.Showing -> if (isSettled(fullscreenCapsuleSpring, 1f)) {
-                finishFullscreenShow()
+                finishFullscreenShow(framePresentation)
             }
 
             FullscreenCapsulePhase.None -> Unit
@@ -419,7 +423,7 @@ class OverlayWindowController(
                 forceRender = true
                 markStateStart(frameTimeNanos)
                 scheduleAutoCollapse()
-                updateTouchBounds(expanded = true)
+                updateTouchBounds(expanded = true, display = framePresentation.display)
             }
 
             OverlayState.Collapsing -> if (
@@ -438,7 +442,7 @@ class OverlayWindowController(
                 collapseReleaseVelocityDpPerSecond = 0f
                 collapseDirection = 0
                 resetCollapseRebound()
-                updateBackgroundDim()
+                updateBackgroundDim(framePresentation)
                 presentationToken += 1
                 // A settled capsule is rendered by a separate shader branch
                 // with alpha=1. Always submit that final frame; otherwise the
@@ -447,7 +451,7 @@ class OverlayWindowController(
                 forceRender = true
                 lastRenderSubmitNanos = 0L
                 markStateStart(frameTimeNanos)
-                updateTouchBounds(expanded = false)
+                updateTouchBounds(expanded = false, display = framePresentation.display)
             }
 
             else -> Unit
@@ -514,8 +518,10 @@ class OverlayWindowController(
                 fullscreenCapsuleScale = fullscreenFrame.scale,
                 fullscreenCapsuleSquareProgress = fullscreenFrame.squareProgress,
                 fullscreenCapsuleOpacity = fullscreenFrame.opacity,
+                presentation = framePresentation,
             )
-            updateShapeInputRegion(snapshot, displayGeometry())
+            updateShapeInputRegion(snapshot)
+            updateBackgroundDim(framePresentation)
             textureView.submit(snapshot)
         }
         val pressIsSettled = isSettled(pressSpring, pressSpring.target)
@@ -958,25 +964,25 @@ class OverlayWindowController(
         postFrame()
     }
 
-    private fun finishFullscreenHide() {
+    private fun finishFullscreenHide(presentation: PresentationGeometry) {
         fullscreenCapsuleSpring.snapTo(0f)
         fullscreenTransition = FullscreenCapsulePhase.None
         renderHost?.visibility = View.INVISIBLE
         backgroundDimView?.hideImmediately()
         backgroundDimView?.visibility = View.INVISIBLE
         inputRegion?.update(Region())
-        updateTouchBounds(expanded = false)
+        updateTouchBounds(expanded = false, display = presentation.display)
         lastFrameNanos = 0L
         removeFrame()
     }
 
-    private fun finishFullscreenShow() {
+    private fun finishFullscreenShow(presentation: PresentationGeometry) {
         fullscreenCapsuleSpring.snapTo(1f)
         fullscreenTransition = FullscreenCapsulePhase.None
         renderHost?.visibility = View.VISIBLE
         backgroundDimView?.visibility = View.VISIBLE
-        updateBackgroundDim()
-        updateTouchBounds(stateMachine.state != OverlayState.Collapsed)
+        updateBackgroundDim(presentation)
+        updateTouchBounds(stateMachine.state != OverlayState.Collapsed, presentation.display)
         forceRender = true
         lastRenderSubmitNanos = 0L
     }
@@ -993,9 +999,9 @@ class OverlayWindowController(
 
     private fun updateShapeInputRegion(
         snapshot: RenderSnapshot,
-        display: RotationDisplayGeometry,
     ) {
         val canvas = params ?: return
+        val display = snapshot.presentation?.display ?: return
         if (fullscreenAutoHidden || fullscreenTransition != FullscreenCapsulePhase.None) {
             inputRegion?.update(Region())
             return
@@ -1024,31 +1030,30 @@ class OverlayWindowController(
     private fun displayGeometry(): RotationDisplayGeometry {
         @Suppress("DEPRECATION")
         val display = windowManager.defaultDisplay
-        val rotation = display.rotation
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val metrics = windowManager.currentWindowMetrics
-            val bounds = metrics.bounds
-            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
-                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
+            // Metrics and rotation are read as a pair. If Android is midway
+            // through a rotation, retain the last coherent pair instead of
+            // publishing a frame assembled from two different orientations.
+            val samples = buildList {
+                repeat(DISPLAY_GEOMETRY_READ_ATTEMPTS) {
+                    add(readApi30DisplaySample(display))
+                }
+            }
+            val stable = RotationCoordinateSpace.selectStableGeometry(
+                samples,
+                lastStableDisplayGeometry,
             )
-            val physicalBounds = IntRect(bounds.left, bounds.top, bounds.right, bounds.bottom)
-            val systemInsets = IntRect(insets.left, insets.top, insets.right, insets.bottom)
-            RotationDisplayGeometry(
-                physicalBounds = physicalBounds,
-                safeBounds = OverlayLayout.safeBoundsForDisplay(
-                    displayBounds = physicalBounds,
-                    systemInsets = systemInsets,
-                    landscape = physicalBounds.width > physicalBounds.height,
-                ),
-                systemInsets = systemInsets,
-                rotation = rotation,
-            )
+            (stable ?: samples.last().geometry).also {
+                if (stable != null) lastStableDisplayGeometry = stable
+            }
         } else {
+            @Suppress("DEPRECATION")
+            val rotation = display.rotation
             val point = Point().also(display::getRealSize)
             val physicalBounds = IntRect(0, 0, point.x, point.y)
             val landscape = physicalBounds.width > physicalBounds.height
-            val systemInsets = legacyDisplayInsets(display, landscape)
-            RotationDisplayGeometry(
+            val systemInsets = legacyDisplayInsets(display, landscape, rotation)
+            val geometry = RotationDisplayGeometry(
                 physicalBounds = physicalBounds,
                 safeBounds = OverlayLayout.safeBoundsForDisplay(
                     displayBounds = physicalBounds,
@@ -1058,34 +1063,42 @@ class OverlayWindowController(
                 systemInsets = systemInsets,
                 rotation = rotation,
             )
+            lastStableDisplayGeometry = geometry
+            geometry
         }
     }
 
-    /**
-     * Configuration is the semantic orientation, while the display bounds
-     * are the physical coordinate space used by WindowManager. During an OEM
-     * rotation transition they can update on different frames, so accept the
-     * physical landscape shape as a fallback instead of deriving an origin
-     * from a stale configuration snapshot.
-     */
-    private fun isLandscape(): Boolean {
-        if (context.resources.configuration.orientation ==
-            android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        ) return true
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val bounds = windowManager.currentWindowMetrics.bounds
-            return bounds.width() > bounds.height()
-        }
-        @Suppress("DEPRECATION")
-        val display = windowManager.defaultDisplay
-        return display.rotation == android.view.Surface.ROTATION_90 ||
-            display.rotation == android.view.Surface.ROTATION_270
+    private fun readApi30DisplaySample(display: android.view.Display): RotationDisplaySample {
+        val rotationBefore = display.rotation
+        val metrics = windowManager.currentWindowMetrics
+        val bounds = metrics.bounds
+        val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+            WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
+        )
+        val rotationAfter = display.rotation
+        val physicalBounds = IntRect(bounds.left, bounds.top, bounds.right, bounds.bottom)
+        val systemInsets = IntRect(insets.left, insets.top, insets.right, insets.bottom)
+        return RotationDisplaySample(
+            geometry = RotationDisplayGeometry(
+                physicalBounds = physicalBounds,
+                safeBounds = OverlayLayout.safeBoundsForDisplay(
+                    displayBounds = physicalBounds,
+                    systemInsets = systemInsets,
+                    landscape = physicalBounds.width > physicalBounds.height,
+                ),
+                systemInsets = systemInsets,
+                rotation = rotationBefore,
+            ),
+            rotationBefore = rotationBefore,
+            rotationAfter = rotationAfter,
+        )
     }
 
     @Suppress("DEPRECATION")
     private fun legacyDisplayInsets(
         display: android.view.Display,
         landscape: Boolean,
+        rotation: Int,
     ): IntRect {
         // Once the overlay view exists, its root insets are the most accurate
         // source on API 29, including OEM navigation bars and cutouts.
@@ -1104,7 +1117,6 @@ class OverlayWindowController(
         // supplied by the root-view branch above once the overlay is attached.
         val navigationWidth = systemDimension("navigation_bar_width")
         val navigationHeight = systemDimension("navigation_bar_height")
-        val rotation = display.rotation
         val navigationLeft = if (landscape && rotation == android.view.Surface.ROTATION_270) navigationWidth else 0
         val navigationRight = if (landscape && rotation == android.view.Surface.ROTATION_90) navigationWidth else 0
         return IntRect(
@@ -1121,18 +1133,14 @@ class OverlayWindowController(
         if (AccessibilityOverlayBridge.isConnected()) return visualBounds
         return OverlayLayout.moveTouchBelowProtectedTop(
             bounds = visualBounds,
-            blockedBottomPx = protectedTopInsetPx(),
+            blockedBottomPx = protectedTopInsetPx(display),
             limitBottomPx = display.safeBounds.bottom,
         )
     }
 
-    private fun protectedTopInsetPx(): Int {
+    private fun protectedTopInsetPx(display: RotationDisplayGeometry): Int {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val metrics = windowManager.currentWindowMetrics
-            val inset = metrics.windowInsets.getInsetsIgnoringVisibility(
-                WindowInsets.Type.statusBars() or WindowInsets.Type.displayCutout(),
-            ).top
-            return metrics.bounds.top + inset
+            return display.physicalBounds.top + display.systemInsets.top
         }
         return systemDimension("status_bar_height")
     }
@@ -1240,6 +1248,10 @@ class OverlayWindowController(
         }
     }
 
+    private fun updateBackgroundDim(presentation: PresentationGeometry) {
+        updateBackgroundDim(presentation.display, presentation.expandedFrame)
+    }
+
     /** Keeps the dim layer's alpha transition on the same slower timing as the shape spring. */
     private fun dimTransitionDurationMs(): Long {
         val response = when (stateMachine.state) {
@@ -1341,5 +1353,6 @@ class OverlayWindowController(
         const val FULLSCREEN_SHOW_RESPONSE = 0.78f
         const val FULLSCREEN_SHOW_DAMPING = 0.64f
         const val ASSISTANT_COLLAPSE_DELAY_MS = 420L
+        const val DISPLAY_GEOMETRY_READ_ATTEMPTS = 3
     }
 }
