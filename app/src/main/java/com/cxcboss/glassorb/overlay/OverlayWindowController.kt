@@ -174,9 +174,9 @@ class OverlayWindowController(
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             onRenderFailure = { error -> onFatalError(error.message ?: "OpenGL 渲染初始化失败") }
         }
-        val safe = safeBounds()
-        val bounds = OverlayLayout.expandedBounds(config.geometry, safe, density)
-        val collapsed = OverlayLayout.collapsedBounds(config.geometry, safe, density)
+        val display = displayGeometry()
+        val bounds = OverlayLayout.expandedBounds(config.geometry, display, density)
+        val collapsed = OverlayLayout.collapsedBounds(config.geometry, display, density)
         windowMotion.setExpandedWindow(OverlayLayout.anchorOffsets(bounds, collapsed, density))
         val layoutParams = createLayoutParams(bounds, touchable = true)
         val host = FrameLayout(context).apply {
@@ -187,7 +187,7 @@ class OverlayWindowController(
         // the window and translating its child are separate compositor updates
         // and can expose one frame with mismatched coordinates.
         val initialHostParams = createLayoutParams(bounds, touchable = true)
-        val touchBounds = touchBounds(expanded = false, safe = safe)
+        val touchBounds = touchBounds(expanded = false, display = display)
         val target = View(context).apply { setOnTouchListener(::onTouch) }
         val targetParams = createLayoutParams(touchBounds, touchable = true)
         val dimView = BackgroundDimView(context)
@@ -290,9 +290,9 @@ class OverlayWindowController(
         if (accessibilityWindow || view == null || fullscreenAutoHidden ||
             fullscreenTransition != FullscreenCapsulePhase.None
         ) return null
-        val safe = safeBounds()
+        val display = displayGeometry()
         return if (stateMachine.state == OverlayState.Collapsed) {
-            OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
+            OverlayLayout.capsuleTouchBounds(config.geometry, display, density)
         } else null
     }
 
@@ -759,9 +759,9 @@ class OverlayWindowController(
     private fun updateBounds() {
         val textureView = view ?: return
         val layoutParams = params ?: return
-        val safe = safeBounds()
-        val bounds = OverlayLayout.expandedBounds(config.geometry, safe, density)
-        val collapsed = OverlayLayout.collapsedBounds(config.geometry, safe, density)
+        val display = displayGeometry()
+        val bounds = OverlayLayout.expandedBounds(config.geometry, display, density)
+        val collapsed = OverlayLayout.collapsedBounds(config.geometry, display, density)
         val layoutChanged = layoutParams.width != bounds.width || layoutParams.height != bounds.height ||
             layoutParams.x != bounds.left || layoutParams.y != bounds.top
         if (!layoutChanged) {
@@ -840,13 +840,13 @@ class OverlayWindowController(
             fullscreenTransition != FullscreenCapsulePhase.None
         ) View.INVISIBLE else View.VISIBLE
         val layoutParams = touchParams ?: return
-        val safe = safeBounds()
-        val bounds = touchBounds(expanded, safe)
+        val display = displayGeometry()
+        val bounds = touchBounds(expanded, display)
         AccessibilityOverlayBridge.updateTouchBounds(
             if (AccessibilityOverlayBridge.isConnected() && !accessibilityWindow) {
                 if (expanded || fullscreenAutoHidden ||
                     fullscreenTransition != FullscreenCapsulePhase.None
-                ) null else OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
+                ) null else OverlayLayout.capsuleTouchBounds(config.geometry, display, density)
             } else null,
         )
         if (layoutParams.width == bounds.width && layoutParams.height == bounds.height &&
@@ -990,7 +990,7 @@ class OverlayWindowController(
         }
         val region = Region()
         if (snapshot.state == OverlayState.Collapsed) {
-            val bounds = OverlayLayout.capsuleTouchBounds(config.geometry, safeBounds(), density)
+            val bounds = OverlayLayout.capsuleTouchBounds(config.geometry, displayGeometry(), density)
             region.set(bounds.left - canvas.x, bounds.top - canvas.y,
                 bounds.right - canvas.x, bounds.bottom - canvas.y)
         } else {
@@ -1003,30 +1003,48 @@ class OverlayWindowController(
         inputRegion?.update(region)
     }
 
-    private fun safeBounds(): IntRect {
+    private fun displayGeometry(): RotationDisplayGeometry {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val metrics = windowManager.currentWindowMetrics
             val bounds = metrics.bounds
             val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
                 WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
             )
-            OverlayLayout.safeBoundsForDisplay(
-                displayBounds = IntRect(bounds.left, bounds.top, bounds.right, bounds.bottom),
-                systemInsets = IntRect(insets.left, insets.top, insets.right, insets.bottom),
-                landscape = isLandscape(),
+            val physicalBounds = IntRect(bounds.left, bounds.top, bounds.right, bounds.bottom)
+            val systemInsets = IntRect(insets.left, insets.top, insets.right, insets.bottom)
+            RotationDisplayGeometry(
+                physicalBounds = physicalBounds,
+                safeBounds = OverlayLayout.safeBoundsForDisplay(
+                    displayBounds = physicalBounds,
+                    systemInsets = systemInsets,
+                    landscape = isLandscape(),
+                ),
+                systemInsets = systemInsets,
+                rotation = currentRotation(),
             )
         } else {
             @Suppress("DEPRECATION")
             val display = windowManager.defaultDisplay
             val point = Point().also(display::getRealSize)
+            val physicalBounds = IntRect(0, 0, point.x, point.y)
             val landscape = isLandscape()
-            val insets = legacyDisplayInsets(display, landscape)
-            OverlayLayout.safeBoundsForDisplay(
-                displayBounds = IntRect(0, 0, point.x, point.y),
-                systemInsets = insets,
-                landscape = landscape,
+            val systemInsets = legacyDisplayInsets(display, landscape)
+            RotationDisplayGeometry(
+                physicalBounds = physicalBounds,
+                safeBounds = OverlayLayout.safeBoundsForDisplay(
+                    displayBounds = physicalBounds,
+                    systemInsets = systemInsets,
+                    landscape = landscape,
+                ),
+                systemInsets = systemInsets,
+                rotation = currentRotation(),
             )
         }
+    }
+
+    private fun currentRotation(): Int {
+        @Suppress("DEPRECATION")
+        return windowManager.defaultDisplay.rotation
     }
 
     /**
@@ -1083,14 +1101,14 @@ class OverlayWindowController(
         )
     }
 
-    private fun touchBounds(expanded: Boolean, safe: IntRect): IntRect {
-        val visualBounds = if (expanded) OverlayLayout.orbTouchBounds(config.geometry, safe, density)
-        else OverlayLayout.capsuleTouchBounds(config.geometry, safe, density)
+    private fun touchBounds(expanded: Boolean, display: RotationDisplayGeometry): IntRect {
+        val visualBounds = if (expanded) OverlayLayout.orbTouchBounds(config.geometry, display, density)
+        else OverlayLayout.capsuleTouchBounds(config.geometry, display, density)
         if (AccessibilityOverlayBridge.isConnected()) return visualBounds
         return OverlayLayout.moveTouchBelowProtectedTop(
             bounds = visualBounds,
             blockedBottomPx = protectedTopInsetPx(),
-            limitBottomPx = safe.bottom,
+            limitBottomPx = display.safeBounds.bottom,
         )
     }
 
@@ -1180,8 +1198,9 @@ class OverlayWindowController(
     private fun updateBackgroundDim() {
         val dimView = backgroundDimView ?: return
         val dimParams = backgroundDimParams ?: return
-        val physical = physicalBounds()
-        val gradientBottom = OverlayLayout.expandedVisualBottomPx(config.geometry, safeBounds(), density)
+        val display = displayGeometry()
+        val physical = display.physicalBounds
+        val gradientBottom = OverlayLayout.expandedVisualBottomPx(config.geometry, display, density)
         val gradientHeight = (gradientBottom - physical.top).coerceIn(1, physical.height)
         val expanded = stateMachine.state != OverlayState.Collapsed &&
             stateMachine.state != OverlayState.Hidden && stateMachine.state != OverlayState.Collapsing
