@@ -35,6 +35,11 @@ uniform float uInternalHueShift;
 uniform float uUpperHighlightHue;
 uniform float uUpperHighlightAmount;
 
+const float kPaletteFallbackCoverage = 0.01;
+const float kPaletteFullConfidenceCoverage = 0.06;
+const float kPaletteBrightnessGain = 3.0;
+const float kPaletteMinBrightness = 0.12;
+
 uniform float uGlassVisibility;
 uniform float uGlassContentOpacity;
 uniform float uCollapsed;
@@ -98,13 +103,15 @@ vec3 dynamicCausticColor() {
 	vec4 reduction = texture(uPaletteTexture, vec2(0.5));
 	vec3 fallback = paletteFallbackColor(uInternalHueShift + 0.08);
 	float coverage = saturate(reduction.a);
-	float confidence = smoothstep(0.01, 0.06, coverage);
+	float confidence = smoothstep(kPaletteFallbackCoverage, kPaletteFullConfidenceCoverage, coverage);
 	vec3 mixed = mix(fallback, clamp(reduction.rgb, 0.0, 1.0), confidence);
 	float mixedLuminance = dot(mixed, vec3(0.2126, 0.7152, 0.0722));
 	float fallbackLuminance = dot(fallback, vec3(0.2126, 0.7152, 0.0722));
+	float recoveredBrightness = clamp(mixedLuminance * kPaletteBrightnessGain,
+		kPaletteMinBrightness, 1.0);
 	float brightness = mix(
 		fallbackLuminance,
-		clamp(mixedLuminance * 3.0, 0.12, 1.0),
+		recoveredBrightness,
 		confidence
 	);
 	vec3 chroma = mixed / max(max(mixed.r, max(mixed.g, mixed.b)), 0.0001);

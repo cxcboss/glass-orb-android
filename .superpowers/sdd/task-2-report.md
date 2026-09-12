@@ -61,3 +61,9 @@ The debug app and test APK compiled successfully, but execution stopped with `No
 ## Remaining concern
 
 The new shader/program wiring is compiled as part of the Android asset/build pipeline and covered by the existing GLES renderer test harness, but that harness could not run without a connected Android device. A device-side `GlassPixelsTest` pass is still required before claiming visual acceptance.
+
+## Review follow-up on d703d4d
+
+- Added the executable JVM wiring contract in `DynamicPaletteBindings` and `DynamicPalettePassPlan`. `GlOrbPipeline` now uses the shared binding objects for effect, palette, scene sampler units, sampler uniform names, and the palette resolution uniform. JVM tests assert non-conflicting consumer units, the `effect -> palette -> scene -> glass` pass order, and the palette/glass binding names.
+- Aligned `DynamicPaletteReduction.recover()` with the exact `glass.frag` recovery constants and operations: fallback coverage `0.01`, full confidence coverage `0.06`, `smoothstep` confidence, brightness gain `3.0`, minimum brightness `0.12`, fallback luminance interpolation, chroma normalization, and clamping. Tests lock the empty, weak, partial-confidence, mixed, and brightness cases.
+- The focused contract/recovery JVM tests and the complete `testDebugUnitTest` suite passed on the final tree. Android resource/asset compilation also completed successfully as part of the Gradle test/build tasks, including the new palette shader asset and its pipeline source wiring. This covers the executable contract and asset compilation that are measurable without a device; real GLES shader execution and pixel output remain pending a connected Android device.

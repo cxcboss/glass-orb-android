@@ -15,6 +15,7 @@ internal class GlOrbPipeline(
     context: Context,
     private val displayDensity: Float,
 ) {
+    private val palettePlan = DynamicPalettePassPlan
     private val vertexSource = context.assets.open("shaders/screen.vert").bufferedReader().use { it.readText() }
     private val effectProgram = GlProgram(
         vertexSource,
@@ -133,9 +134,16 @@ internal class GlOrbPipeline(
             GLES30.glClearColor(0f, 0f, 0f, 0f)
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
             paletteProgram.use()
-            effect.bindTexture(0)
-            paletteProgram.int("uEffectTexture", 0)
-            paletteProgram.vec2("uEffectResolution", effect.width.toFloat(), effect.height.toFloat())
+            effect.bindTexture(palettePlan.bindings.effectTexture.textureUnit)
+            paletteProgram.int(
+                palettePlan.bindings.effectTexture.uniformName,
+                palettePlan.bindings.effectTexture.textureUnit,
+            )
+            paletteProgram.vec2(
+                palettePlan.bindings.effectResolutionUniform,
+                effect.width.toFloat(),
+                effect.height.toFloat(),
+            )
             drawQuad()
 
             scene.bind()
@@ -143,8 +151,11 @@ internal class GlOrbPipeline(
             GLES30.glClearColor(0f, 0f, 0f, 0f)
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
             containerProgram.use()
-            effect.bindTexture(0)
-            containerProgram.int("uEffectTexture", 0)
+            effect.bindTexture(palettePlan.bindings.effectTexture.textureUnit)
+            containerProgram.int(
+                palettePlan.bindings.effectTexture.uniformName,
+                palettePlan.bindings.effectTexture.textureUnit,
+            )
             containerProgram.vec2("uResolution", targetWidth.toFloat(), targetHeight.toFloat())
             containerProgram.vec2("uEffectOrigin", (centerX - effectSize * 0.5f) * targetScale,
                 (centerY - effectSize * 0.5f) * targetScale)
@@ -161,10 +172,16 @@ internal class GlOrbPipeline(
         GLES30.glClearColor(0f, 0f, 0f, 0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         glassProgram.use()
-        scene.bindTexture(0)
-        glassProgram.int("uSceneTexture", 0)
-        palette.bindTexture(1)
-        glassProgram.int("uPaletteTexture", 1)
+        scene.bindTexture(palettePlan.bindings.sceneTexture.textureUnit)
+        glassProgram.int(
+            palettePlan.bindings.sceneTexture.uniformName,
+            palettePlan.bindings.sceneTexture.textureUnit,
+        )
+        palette.bindTexture(palettePlan.bindings.paletteTexture.textureUnit)
+        glassProgram.int(
+            palettePlan.bindings.paletteTexture.uniformName,
+            palettePlan.bindings.paletteTexture.textureUnit,
+        )
         glassProgram.vec2("uResolution", width.toFloat(), height.toFloat())
         glassProgram.vec2("uCanvasSize", width.toFloat(), height.toFloat())
         glassProgram.vec2("uPanelOrigin", centerX - shapeWidth * 0.5f, topPad)
