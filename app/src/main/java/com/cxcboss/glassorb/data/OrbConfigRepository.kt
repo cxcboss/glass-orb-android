@@ -23,8 +23,6 @@ import kotlinx.coroutines.flow.map
 
 private val Context.orbConfigDataStore: DataStore<Preferences> by preferencesDataStore(name = "orb_config")
 
-enum class ConfigPreset { Reference, Soft, Bright }
-
 enum class ConfigGroup { Geometry, Glass, Container, Wave, Dots, Motion, Performance }
 
 class OrbConfigRepository private constructor(context: Context) {
@@ -81,16 +79,6 @@ class OrbConfigRepository private constructor(context: Context) {
         if (publishGeneration == writeGeneration) hasPendingRuntimeConfig = false
     }
 
-    suspend fun applyPreset(preset: ConfigPreset) {
-        replace(
-            when (preset) {
-                ConfigPreset.Reference -> OrbConfig.reference()
-                ConfigPreset.Soft -> OrbConfig.soft()
-                ConfigPreset.Bright -> OrbConfig.bright()
-            },
-        )
-    }
-
     suspend fun reset(group: ConfigGroup) {
         update { current ->
             val defaults = OrbConfig.reference()
@@ -104,14 +92,6 @@ class OrbConfigRepository private constructor(context: Context) {
                 ConfigGroup.Performance -> current.copy(performance = defaults.performance)
             }
         }
-    }
-
-    fun exportJson(): String = OrbConfigJson.encode(runtimeConfig.value)
-
-    suspend fun importJson(json: String): Result<OrbConfig> {
-        val parsed = OrbConfigJson.decode(json)
-        parsed.getOrNull()?.let { replace(it) }
-        return parsed
     }
 
     companion object {

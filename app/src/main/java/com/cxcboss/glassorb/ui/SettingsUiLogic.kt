@@ -1,31 +1,9 @@
 package com.cxcboss.glassorb.ui
 
-import com.cxcboss.glassorb.data.ConfigGroup
 import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt
-
-sealed interface SettingsRoute {
-    data object Home : SettingsRoute
-    data object OverlayDetails : SettingsRoute
-    data class ConfigGroupDetail(val group: ConfigGroup) : SettingsRoute
-    data object Presets : SettingsRoute
-    data object DataManagement : SettingsRoute
-    data object About : SettingsRoute
-}
-
-fun routeFor(group: ConfigGroup): String = "group/${group.name}"
-
-fun parseSettingsRoute(route: String): SettingsRoute = when (route) {
-    "overlay" -> SettingsRoute.OverlayDetails
-    "presets" -> SettingsRoute.Presets
-    "data" -> SettingsRoute.DataManagement
-    "about" -> SettingsRoute.About
-    else -> ConfigGroup.entries.firstOrNull { route == routeFor(it) }
-        ?.let(SettingsRoute::ConfigGroupDetail)
-        ?: SettingsRoute.Home
-}
 
 enum class OverlayAction { RequestPermission, Show, Start, Hide, None }
 

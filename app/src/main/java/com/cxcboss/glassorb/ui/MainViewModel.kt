@@ -4,10 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cxcboss.glassorb.data.ConfigGroup
-import com.cxcboss.glassorb.data.ConfigPreset
 import com.cxcboss.glassorb.data.OrbConfigRepository
 import com.cxcboss.glassorb.model.OrbConfig
-import com.cxcboss.glassorb.model.OrbConfigJson
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,16 +43,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun applyPreset(preset: ConfigPreset) {
-        update(
-            when (preset) {
-                ConfigPreset.Reference -> OrbConfig.reference()
-                ConfigPreset.Soft -> OrbConfig.soft()
-                ConfigPreset.Bright -> OrbConfig.bright()
-            },
-        )
-    }
-
     fun reset(group: ConfigGroup) {
         val current = mutableConfig.value
         val defaults = OrbConfig.reference()
@@ -73,11 +61,4 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun resetAll() = update(OrbConfig.reference())
 
-    fun exportJson(): String = OrbConfigJson.encode(mutableConfig.value)
-
-    fun importJson(json: String, onResult: (Result<OrbConfig>) -> Unit) {
-        val result = OrbConfigJson.decode(json)
-        result.getOrNull()?.let(::update)
-        onResult(result)
-    }
 }

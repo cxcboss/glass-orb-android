@@ -4,6 +4,7 @@
 /local.properties
 **/build/
 /.omx/
+/.superpowers/
 *.iml
 .DS_Store
 

@@ -110,7 +110,6 @@ class BackgroundBlurPolicyTest {
         assertEquals(1, host.events.count { it == "destroy" })
     }
 
-    @Test
     private class RecordingBlurWindow : BackgroundBlurWindow {
         val events = mutableListOf<String>()
 

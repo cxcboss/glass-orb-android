@@ -9,7 +9,7 @@ enum class HorizontalAnchor {
 data class GeometryConfig(
     val capsuleWidthDp: Float = 118f,
     val capsuleHeightDp: Float = 34f,
-    /** Legacy base size retained for importing/exporting older presets. */
+    /** Legacy base size retained while migrating older persisted configurations. */
     val orbDiameterDp: Float = 128f,
     val orbWidthDp: Float = 128f,
     val orbHeightDp: Float = 128f,

@@ -1,23 +1,10 @@
 package com.cxcboss.glassorb.ui
 
-import com.cxcboss.glassorb.data.ConfigGroup
 import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
 import org.junit.Assert.*
 import org.junit.Test
 
 class SettingsUiLogicTest {
-    @Test fun routeCodecRoundTripsEveryDestination() {
-        assertEquals(SettingsRoute.Home, parseSettingsRoute("home"))
-        assertEquals(SettingsRoute.OverlayDetails, parseSettingsRoute("overlay"))
-        assertEquals(SettingsRoute.Presets, parseSettingsRoute("presets"))
-        assertEquals(SettingsRoute.DataManagement, parseSettingsRoute("data"))
-        assertEquals(SettingsRoute.About, parseSettingsRoute("about"))
-        ConfigGroup.entries.forEach { group ->
-            assertEquals(group, (parseSettingsRoute(routeFor(group)) as SettingsRoute.ConfigGroupDetail).group)
-        }
-        assertEquals(SettingsRoute.Home, parseSettingsRoute("unknown"))
-    }
-
     @Test fun masterSwitchResolvesPermissionAndRuntimeActions() {
         assertEquals(OverlayAction.RequestPermission, resolveOverlayAction(true, false, OverlayRuntimeStatus.Hidden))
         assertEquals(OverlayAction.Show, resolveOverlayAction(true, true, OverlayRuntimeStatus.Hidden))
