@@ -10,14 +10,23 @@ import com.cxcboss.glassorb.overlay.OverlayState
 internal object GlassCollapseTransition {
     const val COLLAPSE_FADE_START = 0.46f
     private const val COLLAPSE_FADE_END = 0.88f
-    private const val EXPAND_FADE_START = 0.08f
-    private const val EXPAND_FADE_END = 0.72f
 
-    fun contentOpacity(state: OverlayState, rawMorph: Float, visualMorph: Float): Float = when {
+    fun contentOpacity(
+        state: OverlayState,
+        rawMorph: Float,
+        visualMorph: Float,
+        stateElapsedSeconds: Float = Float.POSITIVE_INFINITY,
+    ): Float = when {
         state == OverlayState.Collapsed -> 0f
+        // The scene is primed once while expanding and then reused. Keep the
+        // optical contents visible; setting this to zero makes the fragment
+        // shader replace the contents with its black transition shell.
+        state == OverlayState.Expanding -> 1f
+        state == OverlayState.Wave && rawMorph >= 0.999f -> 1f
         state == OverlayState.Collapsing -> collapseOpacity(rawMorph)
-        state is OverlayState.SwipeTracking && rawMorph < 0.999f -> collapseOpacity(rawMorph)
-        state == OverlayState.Expanding -> smoothstep(EXPAND_FADE_START, EXPAND_FADE_END, visualMorph)
+        // A cancelled/partial drag is still an interactive glass orb. Only
+        // the committed Collapsing state should fade into the black capsule.
+        state is OverlayState.SwipeTracking -> 1f
         else -> 1f
     }
 

@@ -44,7 +44,11 @@ object OrbConfigJson {
                 put("fade", value.container.fade)
                 put("gaussian", value.container.gaussian)
                 put("backgroundDimEnabled", value.container.backgroundDimEnabled)
+                put("backgroundDimPercent", value.container.backgroundDimPercent)
+                put("backgroundAmbientBlurEnabled", value.container.backgroundAmbientBlurEnabled)
+                put("backgroundAmbientBlurPercent", value.container.backgroundAmbientBlurPercent)
                 put("backgroundBlurEnabled", value.container.backgroundBlurEnabled)
+                put("backgroundBlurPercent", value.container.backgroundBlurPercent)
             })
             put("wave", JSONObject().apply {
                 put("amplitude", value.wave.amplitude)
@@ -96,6 +100,7 @@ object OrbConfigJson {
     fun decode(json: String): Result<OrbConfig> = runCatching {
         val root = JSONObject(json)
         val defaults = OrbConfig.reference()
+        val storedSchemaVersion = root.int("schemaVersion", 0)
         val geometry = root.optJSONObject("geometry")
         val glass = root.optJSONObject("glass")
         val container = root.optJSONObject("container")
@@ -106,7 +111,7 @@ object OrbConfigJson {
         val legacyOrbDiameterDp = geometry.float("orbDiameterDp", defaults.geometry.orbDiameterDp)
 
         OrbConfig(
-            schemaVersion = root.int("schemaVersion", defaults.schemaVersion),
+            schemaVersion = storedSchemaVersion,
             geometry = defaults.geometry.copy(
                 capsuleWidthDp = geometry.float("capsuleWidthDp", defaults.geometry.capsuleWidthDp),
                 capsuleHeightDp = geometry.float("capsuleHeightDp", defaults.geometry.capsuleHeightDp),
@@ -145,8 +150,28 @@ object OrbConfigJson {
                 strength = container.float("strength", defaults.container.strength),
                 fade = container.float("fade", defaults.container.fade),
                 gaussian = container.float("gaussian", defaults.container.gaussian),
-                backgroundDimEnabled = container.boolean("backgroundDimEnabled", defaults.container.backgroundDimEnabled),
+                // Version 2 makes both lower-layer treatments opt-in. A
+                // version-1 store used dimming as its default, so migrate it
+                // off once while preserving explicit choices in v2 exports.
+                backgroundDimEnabled = if (storedSchemaVersion < 2) {
+                    false
+                } else {
+                    container.boolean("backgroundDimEnabled", defaults.container.backgroundDimEnabled)
+                },
+                backgroundDimPercent = container.float(
+                    "backgroundDimPercent",
+                    defaults.container.backgroundDimPercent,
+                ),
+                backgroundAmbientBlurEnabled = container.boolean(
+                    "backgroundAmbientBlurEnabled",
+                    defaults.container.backgroundAmbientBlurEnabled,
+                ),
+                backgroundAmbientBlurPercent = container.float(
+                    "backgroundAmbientBlurPercent",
+                    defaults.container.backgroundAmbientBlurPercent,
+                ),
                 backgroundBlurEnabled = container.boolean("backgroundBlurEnabled", defaults.container.backgroundBlurEnabled),
+                backgroundBlurPercent = container.backgroundBlurPercent(defaults.container.backgroundBlurPercent),
             ),
             wave = defaults.wave.copy(
                 amplitude = wave.float("amplitude", defaults.wave.amplitude),
@@ -204,6 +229,16 @@ private fun JSONObject?.int(name: String, fallback: Int): Int =
 
 private fun JSONObject?.boolean(name: String, fallback: Boolean): Boolean =
     if (this == null || !has(name)) fallback else optBoolean(name, fallback)
+
+private fun JSONObject?.backgroundBlurPercent(fallback: Float): Float = when {
+    this == null -> fallback
+    has("backgroundBlurPercent") -> float("backgroundBlurPercent", fallback)
+    // 2.0.26 stored the same control as a physical 0..150 px radius. Keep
+    // existing user settings approximately unchanged during this migration.
+    has("backgroundBlurRadiusPx") ->
+        (float("backgroundBlurRadiusPx", fallback * 1.5f) / 1.5f).coerceIn(0f, 100f)
+    else -> fallback
+}
 
 private inline fun <reified T : Enum<T>> JSONObject?.enum(name: String, fallback: T): T {
     val raw = if (this == null) null else optString(name, "")

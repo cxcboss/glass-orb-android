@@ -47,9 +47,9 @@ class GlassCollapseTransitionTest {
     }
 
     @Test
-    fun `expansion reveals content only with the orb shape`() {
+    fun `expansion keeps the primed glass content visible`() {
         assertEquals(
-            0f,
+            1f,
             GlassCollapseTransition.contentOpacity(
                 state = OverlayState.Expanding,
                 rawMorph = 0f,

@@ -26,8 +26,8 @@ data class RotationDisplaySample(
 
 /**
  * Maps points from the display's portrait reference space to its physical
- * current-space coordinates. Rectangles are deliberately not rotated: the
- * overlay content remains an axis-aligned portrait shape.
+ * logical coordinates. The image counter-rotates with the same transform so
+ * it remains attached to the hardware, including its orientation.
  */
 object RotationCoordinateSpace {
     /**
@@ -43,9 +43,9 @@ object RotationCoordinateSpace {
     fun mapPortraitPoint(point: FloatPoint, currentDisplay: IntRect, rotation: Int): FloatPoint {
         val size = portraitReferenceSize(currentDisplay)
         val mapped = when (rotation) {
-            ROTATION_90 -> FloatPoint(size.height - point.y, point.x)
+            ROTATION_90 -> FloatPoint(point.y, size.width - point.x)
             ROTATION_180 -> FloatPoint(size.width - point.x, size.height - point.y)
-            ROTATION_270 -> FloatPoint(point.y, size.width - point.x)
+            ROTATION_270 -> FloatPoint(size.height - point.y, point.x)
             else -> point
         }
         return FloatPoint(
@@ -59,9 +59,9 @@ object RotationCoordinateSpace {
         val x = point.x - currentDisplay.left
         val y = point.y - currentDisplay.top
         return when (rotation) {
-            ROTATION_90 -> FloatPoint(y, size.height - x)
+            ROTATION_90 -> FloatPoint(size.width - y, x)
             ROTATION_180 -> FloatPoint(size.width - x, size.height - y)
-            ROTATION_270 -> FloatPoint(size.width - y, x)
+            ROTATION_270 -> FloatPoint(y, size.height - x)
             else -> FloatPoint(x, y)
         }
     }
@@ -70,6 +70,30 @@ object RotationCoordinateSpace {
         width = min(currentDisplay.width, currentDisplay.height),
         height = max(currentDisplay.width, currentDisplay.height),
     )
+
+    /** Transform the complete rectangle, not only its center. */
+    fun mapPortraitRect(rect: IntRect, currentDisplay: IntRect, rotation: Int): IntRect {
+        val a = mapPortraitPoint(FloatPoint(rect.left.toFloat(), rect.top.toFloat()), currentDisplay, rotation)
+        val b = mapPortraitPoint(FloatPoint(rect.right.toFloat(), rect.bottom.toFloat()), currentDisplay, rotation)
+        return IntRect(minOf(a.x, b.x).roundToInt(), minOf(a.y, b.y).roundToInt(),
+            maxOf(a.x, b.x).roundToInt(), maxOf(a.y, b.y).roundToInt())
+    }
+
+    fun portraitDisplay(display: RotationDisplayGeometry): RotationDisplayGeometry {
+        val size = portraitReferenceSize(display.physicalBounds)
+        val bounds = IntRect(0, 0, size.width, size.height)
+        // System bars move between logical edges; none may shift the hardware anchor.
+        return RotationDisplayGeometry(bounds, bounds, IntRect(0, 0, 0, 0), ROTATION_0)
+    }
+
+    fun contentRotationDegrees(rotation: Int): Float = -90f * rotation
+
+    fun currentVectorToPortrait(x: Float, y: Float, rotation: Int): FloatPoint = when (rotation) {
+        ROTATION_90 -> FloatPoint(-y, x)
+        ROTATION_180 -> FloatPoint(-x, -y)
+        ROTATION_270 -> FloatPoint(y, -x)
+        else -> FloatPoint(x, y)
+    }
 
     /**
      * Converts current physical edge insets into the portrait reference.
@@ -84,9 +108,9 @@ object RotationCoordinateSpace {
         val size = portraitReferenceSize(display.physicalBounds)
         val insets = display.systemInsets
         val portraitInsets = when (display.rotation) {
-            ROTATION_90 -> EdgeInsets(insets.top, insets.right, insets.bottom, insets.left)
+            ROTATION_90 -> EdgeInsets(insets.bottom, insets.left, insets.top, insets.right)
             ROTATION_180 -> EdgeInsets(insets.right, insets.bottom, insets.left, insets.top)
-            ROTATION_270 -> EdgeInsets(insets.bottom, insets.left, insets.top, insets.right)
+            ROTATION_270 -> EdgeInsets(insets.top, insets.right, insets.bottom, insets.left)
             else -> EdgeInsets(insets.left, insets.top, insets.right, insets.bottom)
         }
         return IntRect(

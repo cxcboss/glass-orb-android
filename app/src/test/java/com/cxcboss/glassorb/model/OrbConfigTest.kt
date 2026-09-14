@@ -20,8 +20,9 @@ class OrbConfigTest {
         assertEquals(210f, config.glass.upperHighlightHueDegrees, 0f)
         assertEquals(0.85f, config.glass.upperHighlightAmount, 0f)
         assertEquals(1.6f, config.glass.causticAmount, 0f)
-        assertEquals(true, config.container.backgroundDimEnabled)
+        assertEquals(false, config.container.backgroundDimEnabled)
         assertEquals(false, config.container.backgroundBlurEnabled)
+        assertEquals(12f, config.container.backgroundBlurPercent, 0f)
         assertEquals(30_000f, config.wave.bandFill, 0f)
         assertEquals(0.055f, config.dots.glow, 0f)
         assertEquals(48f, config.motion.collapseRangeDp, 0f)
@@ -115,6 +116,7 @@ class OrbConfigTest {
             container = OrbConfig.bright().container.copy(
                 backgroundDimEnabled = true,
                 backgroundBlurEnabled = true,
+                backgroundBlurPercent = 68f,
             ),
         )
 
@@ -130,7 +132,10 @@ class OrbConfigTest {
         ).getOrThrow()
 
         assertEquals(false, restored.container.backgroundBlurEnabled)
+        assertEquals(false, restored.container.backgroundDimEnabled)
         assertTrue(OrbConfigJson.encode(restored).contains("backgroundBlurEnabled"))
+        assertEquals(12f, restored.container.backgroundBlurPercent, 0f)
+        assertTrue(OrbConfigJson.encode(restored).contains("backgroundBlurPercent"))
     }
 
     @Test

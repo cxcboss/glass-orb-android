@@ -10,6 +10,37 @@ class OverlayRenderPolicyTest {
         assertTrue(shouldContinueOverlayFrames(OverlayState.Collapsed, pressIsSettled = false))
     }
 
+    @Test fun fullscreenVisibilityTransitionKeepsCollapsedOrbSubmittingFrames() {
+        assertFalse(
+            shouldSubmitOverlayFrame(
+                state = OverlayState.Collapsed,
+                fullscreenPhase = FullscreenCapsulePhase.None,
+                forceRender = false,
+            ),
+        )
+        assertTrue(
+            shouldSubmitOverlayFrame(
+                state = OverlayState.Collapsed,
+                fullscreenPhase = FullscreenCapsulePhase.Hiding,
+                forceRender = false,
+            ),
+        )
+        assertTrue(
+            shouldSubmitOverlayFrame(
+                state = OverlayState.Collapsed,
+                fullscreenPhase = FullscreenCapsulePhase.Showing,
+                forceRender = false,
+            ),
+        )
+        assertTrue(
+            shouldSubmitOverlayFrame(
+                state = OverlayState.Collapsed,
+                fullscreenPhase = FullscreenCapsulePhase.None,
+                forceRender = true,
+            ),
+        )
+    }
+
     @Test fun everyVisibleOrbStateKeepsItsAnimationFrames() {
         listOf(
             OverlayState.Expanding,
@@ -27,9 +58,9 @@ class OverlayRenderPolicyTest {
         assertFalse(shouldForceRenderAfterStateChange(OverlayState.Wave, OverlayState.Wave))
     }
 
-    @Test fun collapseEffectsFreezeAtTheContentFadeMidpoint() {
+    @Test fun collapseEffectsStayLiveDuringTransitions() {
         assertFalse(shouldFreezeCollapseEffects(OverlayState.SwipeTracking(0f), 0.3f))
-        assertTrue(shouldFreezeCollapseEffects(OverlayState.SwipeTracking(0f), 0.46f))
-        assertTrue(shouldFreezeCollapseEffects(OverlayState.Collapsing, 0f))
+        assertFalse(shouldFreezeCollapseEffects(OverlayState.SwipeTracking(0f), 0.46f))
+        assertFalse(shouldFreezeCollapseEffects(OverlayState.Collapsing, 0f))
     }
 }

@@ -59,6 +59,7 @@ internal data class ShapeFrame(
                 state = snapshot.state,
                 rawMorph = morph,
                 visualMorph = morph,
+                stateElapsedSeconds = snapshot.stateElapsedSeconds,
             )
             val expanded = snapshot.state != OverlayState.Collapsed && snapshot.state != OverlayState.Hidden
             val breathing = if (expanded) 1f + config.motion.breathingAmplitude *

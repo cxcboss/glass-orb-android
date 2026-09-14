@@ -294,6 +294,7 @@ class GlassOrbAccessibilityService : AccessibilityService() {
         gravity = Gravity.TOP or Gravity.LEFT
         x = bounds.left
         y = bounds.top
+        OverlayRefreshRatePolicy.apply(this, this@GlassOrbAccessibilityService)
         title = "Glass orb trusted touch proxy"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS

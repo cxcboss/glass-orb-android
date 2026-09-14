@@ -8,6 +8,8 @@ import android.graphics.Color
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Region
+import android.graphics.Matrix
+import android.hardware.display.DisplayManager
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -29,6 +31,7 @@ import com.cxcboss.glassorb.motion.FrequencyBands
 import com.cxcboss.glassorb.render.OrbTextureView
 import com.cxcboss.glassorb.render.RenderPresentationFrame
 import com.cxcboss.glassorb.render.RenderSnapshot
+import com.cxcboss.glassorb.render.ShapeFrame
 import com.cxcboss.glassorb.render.ShapeMetrics
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -72,10 +75,26 @@ class OverlayWindowController(
     private val shapeInputPath = Path()
     private val shapeInputRect = RectF()
     private val shapeInputClip = Region()
+    private val contentMatrix = Matrix()
+    private var contentRotation = 0
+    private val displayManager = context.getSystemService(DisplayManager::class.java)
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) = Unit
+        override fun onDisplayRemoved(displayId: Int) = Unit
+        override fun onDisplayChanged(displayId: Int) {
+            if (view != null) onConfigurationChanged()
+        }
+    }
     private var backgroundBlurController: BackgroundBlurController? = null
+    private var backgroundAmbientBlurController: BackgroundAmbientBlurController? = null
     private var crossWindowBlurListenerRegistered = false
-    private val crossWindowBlurListener = Consumer<Boolean> {
-        mainHandler.post { updateBackgroundBlur() }
+    private var crossWindowBlurEnabled = false
+    private var backgroundBlurRevealStartNanos = Long.MIN_VALUE
+    private val crossWindowBlurListener = Consumer<Boolean> { enabled ->
+        mainHandler.post {
+            crossWindowBlurEnabled = enabled
+            updateBackgroundBlur()
+        }
     }
     private var framePosted = false
     private var screenOn = true
@@ -93,7 +112,6 @@ class OverlayWindowController(
     private var cancelledByMultitouch = false
     private var velocityTracker: VelocityTracker? = null
     private var presentationToken = 0L
-    private var lastRenderSubmitNanos = 0L
     private var forceRender = false
     /**
      * WindowManager layout work is intentionally applied on the next display
@@ -180,6 +198,7 @@ class OverlayWindowController(
         }
 
         stateMachine.showCollapsed()
+        backgroundBlurRevealStartNanos = Long.MIN_VALUE
         morphSpring.snapTo(0f)
         resetCollapseRebound()
         fullscreenCapsuleSpring.snapTo(1f)
@@ -198,9 +217,10 @@ class OverlayWindowController(
             onRenderFailure = { error -> onFatalError(error.message ?: "OpenGL 渲染初始化失败") }
         }
         val display = displayGeometry()
-        val expandedFrame = OverlayLayout.expandedFrame(config.geometry, display, density)
+        val portrait = RotationCoordinateSpace.portraitDisplay(display)
+        val expandedFrame = OverlayLayout.expandedFrame(config.geometry, portrait, density)
         val bounds = expandedFrame.bounds
-        val collapsed = OverlayLayout.collapsedBounds(config.geometry, display, density)
+        val collapsed = OverlayLayout.collapsedBounds(config.geometry, portrait, density)
         windowMotion.setExpandedWindow(OverlayLayout.anchorOffsets(bounds, collapsed, density))
         val layoutParams = createLayoutParams(bounds, touchable = true)
         val host = FrameLayout(context).apply {
@@ -210,19 +230,39 @@ class OverlayWindowController(
         // Keep the host origin and canvas fixed for the entire morph. Moving
         // the window and translating its child are separate compositor updates
         // and can expose one frame with mismatched coordinates.
-        val initialHostParams = createLayoutParams(bounds, touchable = true)
+        val initialHostBounds = RotationCoordinateSpace.mapPortraitRect(
+            bounds,
+            display.physicalBounds,
+            display.rotation,
+        )
+        val initialHostParams = createLayoutParams(initialHostBounds, touchable = true)
+        configureContentTransform(textureView, bounds.width, bounds.height, display.rotation)
         val touchBounds = touchBounds(expanded = false, display = display)
         val target = View(context).apply { setOnTouchListener(::onTouch) }
         val targetParams = createLayoutParams(touchBounds, touchable = true)
         val dimView = BackgroundDimView(context)
         val dimParams = createBackgroundDimParams(display.physicalBounds)
-        val blurController = BackgroundBlurController(
-            AndroidBackgroundBlurWindow(windowContext ?: context, accessibilityWindow),
-            blurRadiusPx = (BACKGROUND_BLUR_RADIUS_DP * density).roundToInt().coerceAtLeast(1),
-        )
+        // Android's official background-blur pipeline reads round-rect corner
+        // radii from this floating Window's background. A single, persistent
+        // window keeps the blur behind GL without per-frame window creation.
+        val blurWindow = AndroidBackgroundBlurWindow(windowContext ?: context, accessibilityWindow)
+        val blurController = BackgroundBlurController(blurWindow)
+        val ambientBlurController = BackgroundAmbientBlurController(windowContext ?: context, accessibilityWindow)
         return try {
             // Place the static dim layer below the GL surface and touch proxy.
             windowManager.addView(dimView, dimParams)
+            ambientBlurController.update(
+                enabled = false,
+                crossWindowBlurEnabled = false,
+                display = display,
+                gradientHeightPx = expandedFrame.visualBottomPx,
+                blurPercent = 0f,
+            )
+            // Reserve the compositor layer BEFORE GL; enabling it later must
+            // not insert a new window above (and blur) the orb itself.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                blurWindow.show(initialHostBounds, initialHostBounds, 0)
+            }
             windowManager.addView(host, initialHostParams)
             inputRegion = WindowInputRegion(host)
             windowManager.addView(target, targetParams)
@@ -235,8 +275,10 @@ class OverlayWindowController(
             touchView = target
             touchParams = targetParams
             backgroundBlurController = blurController
+            backgroundAmbientBlurController = ambientBlurController
             pendingLayoutUpdates.clear()
             registerCrossWindowBlurCapabilityListener()
+            displayManager.registerDisplayListener(displayListener, mainHandler)
             AccessibilityOverlayBridge.updateTouchBounds(
                 if (AccessibilityOverlayBridge.isConnected()) currentAccessibilityTouchBounds(display) else null,
             )
@@ -261,6 +303,7 @@ class OverlayWindowController(
             runCatching { windowManager.removeViewImmediate(host) }
             runCatching { windowManager.removeViewImmediate(dimView) }
             blurController.destroy()
+            ambientBlurController.destroy()
             textureView.release()
             onFatalError(error.message ?: "无法创建悬浮窗")
             false
@@ -385,6 +428,7 @@ class OverlayWindowController(
     }
 
     fun onConfigurationChanged() {
+        if (trackingSwipe) cancelGesture()
         pendingLayoutUpdates.offer(config)
         forceRender = true
         postFrame()
@@ -419,7 +463,7 @@ class OverlayWindowController(
         lastFrameNanos = frameTimeNanos
         val elapsedSeconds = ((frameTimeNanos - originNanos) / 1_000_000_000.0).toFloat()
 
-        val stateElapsedSeconds = ((frameTimeNanos - stateStartNanos) / 1_000_000_000.0).toFloat()
+        var stateElapsedSeconds = ((frameTimeNanos - stateStartNanos) / 1_000_000_000.0).toFloat()
 
         morphSpring.step(deltaSeconds)
         thinkingSpring.step(deltaSeconds)
@@ -431,10 +475,9 @@ class OverlayWindowController(
         collapseFlightSpring.step(deltaSeconds)
         fullscreenCapsuleSpring.step(deltaSeconds)
         if (!trackingSwipe) gestureOffsetDp = gestureReturnSpring.value
-        // The expensive wave/dots and off-screen glass scene are no longer
-        // useful once the finger reaches the fade midpoint. Freeze them while
-        // the shape continues following the finger, then keep only the
-        // lightweight shell transition at vsync.
+        // Keep the wave/dots and off-screen glass scene live throughout the
+        // transition. The transition is intentionally a full-rate visual
+        // animation; custom idle FPS must never make it jump between frames.
         val collapseEffectsFrozen = shouldFreezeCollapseEffects(
             state = stateMachine.state,
             collapsePull = windowMotion.collapsePull,
@@ -461,6 +504,10 @@ class OverlayWindowController(
         when (stateMachine.state) {
             OverlayState.Expanding -> if (isSettled(morphSpring, 1f) && stateElapsedSeconds > 0.12f) {
                 stateMachine.onAnimationSettled()
+                // The expensive background-blur window is enabled only after
+                // the morph has settled. Its radius then fades in while the
+                // newly populated GL scene is already available.
+                backgroundBlurRevealStartNanos = frameTimeNanos
                 // The first Wave frame must not be delayed behind the previous
                 // expanding snapshot when the producer is frame-throttled.
                 forceRender = true
@@ -492,7 +539,6 @@ class OverlayWindowController(
                 // idle optimization can leave the last translucent morph frame
                 // on the TextureView indefinitely.
                 forceRender = true
-                lastRenderSubmitNanos = 0L
                 markStateStart(frameTimeNanos)
                 updateTouchBounds(expanded = false, display = framePresentation.display)
             }
@@ -501,33 +547,36 @@ class OverlayWindowController(
         }
 
         // Keep this guard for any future state transition added above. A state
-        // change must publish at least one snapshot even when cadence throttling
-        // says the next regular frame is not due yet.
+        // change must publish at least one snapshot, including the final opaque
+        // collapsed capsule.
         if (shouldForceRenderAfterStateChange(stateBeforeAnimationSettle, stateMachine.state)) {
             forceRender = true
+        }
+        if (stateMachine.state != stateBeforeAnimationSettle) {
+            // The settled Wave snapshot is the first frame of the reveal. Do
+            // not carry the old Expanding elapsed time into the fade curve.
+            stateElapsedSeconds = 0f
         }
 
         val springProgress = if (stateMachine.state is OverlayState.SwipeTracking) 1f else morphSpring.value
         updateRenderAnchors(springProgress)
 
-        val targetFps = if (fullscreenTransition != FullscreenCapsulePhase.None) {
-            // Fullscreen handoff is an explicitly animated state. Do not let
-            // the user's collapsed idle-FPS preference quantize it to 30/60;
-            // submit one frame per display vsync up to 120Hz.
-            120
-        } else if (stateMachine.state == OverlayState.Collapsed) {
-            config.performance.collapsedFps
-        } else {
-            // Interactive morphing must use every display vsync. A persisted
-            // low idle FPS setting must never make a fast finger jump between
-            // capsule/orb states.
-            maxOf(config.performance.expandedFps, 120)
-        }
-        val renderDue = forceRender || lastRenderSubmitNanos == 0L ||
-            frameTimeNanos - lastRenderSubmitNanos >= 1_000_000_000L / targetFps
+        // An active orb must render on every Choreographer callback. Do not
+        // derive a target interval here: panel vsyncs can be a few microseconds
+        // shorter than the nominal 120 Hz interval, which would skip alternating
+        // frames and turn the producer into a 60 Hz stream. The state machine
+        // below stops this callback loop only after the capsule is settled.
+        // Fullscreen hide/show keeps the logical orb state collapsed, but its
+        // capsule visibility is still animated by fullscreenCapsuleSpring.
+        // The policy keeps those spring frames flowing and returns to zero
+        // producer work once the transition settles.
+        val renderDue = shouldSubmitOverlayFrame(
+            state = stateMachine.state,
+            fullscreenPhase = fullscreenTransition,
+            forceRender = forceRender,
+        )
         if (renderDue) {
             forceRender = false
-            lastRenderSubmitNanos = frameTimeNanos
             val fullscreenFrame = FullscreenCapsuleMotion.frame(
                 phase = fullscreenTransition,
                 springValue = fullscreenCapsuleSpring.value,
@@ -562,15 +611,14 @@ class OverlayWindowController(
                 fullscreenCapsuleSquareProgress = fullscreenFrame.squareProgress,
                 fullscreenCapsuleOpacity = fullscreenFrame.opacity,
             )
-            val snapshot = snapshotWithoutPresentation.apply {
-                presentationFrame = RenderPresentationFrame.from(
-                    snapshot = this,
-                    presentation = framePresentation,
-                    density = density,
-                )
-            }
+            val renderPresentation = RenderPresentationFrame.from(
+                snapshot = snapshotWithoutPresentation,
+                presentation = framePresentation,
+                density = density,
+            )
+            val snapshot = snapshotWithoutPresentation.apply { presentationFrame = renderPresentation }
             updateShapeInputRegion(snapshot)
-            updateBackgroundDim(framePresentation)
+            updateBackgroundDim(renderPresentation)
             textureView.submit(snapshot)
         }
         val pressIsSettled = isSettled(pressSpring, pressSpring.target)
@@ -622,17 +670,25 @@ class OverlayWindowController(
                 downRawX = event.rawX
                 downRawY = event.rawY
                 velocityTracker?.recycle()
-                velocityTracker = VelocityTracker.obtain().also { it.addMovement(event) }
+                velocityTracker = VelocityTracker.obtain()
+                trackScreenVelocity(event)
                 pressSpring.target = 1f
                 windowMotion.cancelGesture()
+                // Do not wait for the previous cadence interval when a new
+                // interaction starts. The next Choreographer callback must
+                // publish the pressed frame immediately.
+                forceRender = true
                 postFrame()
                 return true
             }
 
             MotionEvent.ACTION_MOVE -> {
-                velocityTracker?.addMovement(event)
-                val deltaXPx = event.rawX - downRawX
-                val deltaPx = event.rawY - downRawY
+                trackScreenVelocity(event)
+                val delta = RotationCoordinateSpace.currentVectorToPortrait(
+                    event.rawX - downRawX, event.rawY - downRawY, contentRotation,
+                )
+                val deltaXPx = delta.x
+                val deltaPx = delta.y
                 val canSwipe = stateMachine.state == OverlayState.Wave ||
                     stateMachine.state == OverlayState.Thinking ||
                     stateMachine.state is OverlayState.SwipeTracking
@@ -652,14 +708,27 @@ class OverlayWindowController(
             }
 
             MotionEvent.ACTION_UP -> {
-                velocityTracker?.addMovement(event)
+                trackScreenVelocity(event)
                 pressSpring.target = 0f
                 if (!cancelledByMultitouch && trackingSwipe) {
-                    val deltaXPx = event.rawX - downRawX
+                    val portraitDelta = RotationCoordinateSpace.currentVectorToPortrait(
+                        event.rawX - downRawX, event.rawY - downRawY, contentRotation,
+                    )
+                    val deltaXPx = portraitDelta.x
                     velocityTracker?.computeCurrentVelocity(1_000)
-                    val velocityXDp = (velocityTracker?.xVelocity ?: 0f) / density
-                    val velocityDp = (velocityTracker?.yVelocity ?: 0f) / density
-                    val decision = if (windowMotion.collapsePull > 0f) {
+                    val velocity = RotationCoordinateSpace.currentVectorToPortrait(
+                        velocityTracker?.xVelocity ?: 0f, velocityTracker?.yVelocity ?: 0f, contentRotation,
+                    )
+                    val velocityXDp = velocity.x / density
+                    val velocityDp = velocity.y / density
+                    // collapsePull is smoothed on the render clock. A quick
+                    // swipe can release before a render frame observes it,
+                    // so base the release decision on the immediate physical
+                    // gesture as well. This is especially visible after a
+                    // rotation, where the touch proxy has just been rebuilt.
+                    val closingGesture = portraitDelta.y < 0f &&
+                        -portraitDelta.y >= kotlin.math.abs(portraitDelta.x) * 0.35f
+                    val decision = if (closingGesture || windowMotion.collapsePull > 0f) {
                         SwipeDecision.decide(gestureOffsetDp, velocityDp)
                     } else SwipeDecision.Restore
                     collapseReleaseVelocityDpPerSecond = if (decision == SwipeDecision.Collapse) {
@@ -739,12 +808,14 @@ class OverlayWindowController(
         resetCollapseRebound()
         mainHandler.removeCallbacks(autoCollapseTimeout)
         stateMachine.onTap()
+        backgroundBlurRevealStartNanos = Long.MIN_VALUE
         updateBackgroundDim()
         updateTouchBounds(expanded = true)
         configureExpandSpring()
         morphSpring.snapTo(0f)
         morphSpring.target = 1f
         markStateStart()
+        forceRender = true
         // Assistant callbacks enter directly from the accessibility service,
         // outside the touch path that normally schedules the next vsync.
         // Always kick the frame loop here so the expansion cannot remain
@@ -760,6 +831,7 @@ class OverlayWindowController(
         mainHandler.removeCallbacks(thinkingTimeout)
         mainHandler.postDelayed(thinkingTimeout, config.motion.thinkingDurationMs.toLong())
         markStateStart()
+        forceRender = true
     }
 
     private fun cancelGesture() {
@@ -829,19 +901,30 @@ class OverlayWindowController(
         velocityTracker = null
     }
 
+    private fun trackScreenVelocity(event: MotionEvent) {
+        // TextureView dispatch already transforms local coordinates. Feed
+        // raw screen coordinates so the inverse rotation is applied once.
+        val screenEvent = MotionEvent.obtain(event)
+        screenEvent.setLocation(event.rawX, event.rawY)
+        velocityTracker?.addMovement(screenEvent)
+        screenEvent.recycle()
+    }
+
     private fun updateBounds(
         display: RotationDisplayGeometry,
         expandedFrame: ExpandedFrameGeometry,
     ) {
         val textureView = view ?: return
         val layoutParams = params ?: return
-        val bounds = expandedFrame.bounds
-        val collapsed = OverlayLayout.collapsedBounds(config.geometry, display, density)
+        val portrait = RotationCoordinateSpace.portraitDisplay(display)
+        val bounds = OverlayLayout.expandedFrame(config.geometry, portrait, density).bounds
+        val collapsed = OverlayLayout.collapsedBounds(config.geometry, portrait, density)
+        configureContentTransform(textureView, bounds.width, bounds.height, display.rotation)
         val layoutChanged = layoutParams.width != bounds.width || layoutParams.height != bounds.height ||
             layoutParams.x != bounds.left || layoutParams.y != bounds.top
         if (!layoutChanged) {
             windowMotion.setExpandedWindow(OverlayLayout.anchorOffsets(bounds, collapsed, density))
-            updateHostBounds()
+            updateHostBounds(display)
             updateBackgroundDim(display, expandedFrame)
             return
         }
@@ -854,7 +937,7 @@ class OverlayWindowController(
         updateRenderAnchors(if (stateMachine.state is OverlayState.SwipeTracking) 1f else morphSpring.value)
         try {
             textureView.layoutParams = FrameLayout.LayoutParams(bounds.width, bounds.height)
-            updateHostBounds()
+            updateHostBounds(display)
             updateBackgroundDim(display, expandedFrame)
         } catch (error: Throwable) {
             onFatalError(error.message ?: "无法更新悬浮窗位置")
@@ -862,11 +945,14 @@ class OverlayWindowController(
     }
 
     /** Only configuration/display changes may move the host, never a morph. */
-    private fun updateHostBounds() {
+    private fun updateHostBounds(display: RotationDisplayGeometry) {
         val host = renderHost ?: return
         val hostLayout = hostParams ?: return
         val canvas = params ?: return
-        val bounds = IntRect(canvas.x, canvas.y, canvas.x + canvas.width, canvas.y + canvas.height)
+        val bounds = RotationCoordinateSpace.mapPortraitRect(
+            IntRect(canvas.x, canvas.y, canvas.x + canvas.width, canvas.y + canvas.height),
+            display.physicalBounds, display.rotation,
+        )
         if (hostLayout.x == bounds.left && hostLayout.y == bounds.top &&
             hostLayout.width == bounds.width && hostLayout.height == bounds.height) return
         hostLayout.x = bounds.left
@@ -875,6 +961,20 @@ class OverlayWindowController(
         hostLayout.height = bounds.height
         runCatching { windowManager.updateViewLayout(host, hostLayout) }
             .onFailure { onFatalError(it.message ?: "无法更新渲染窗口") }
+    }
+
+    private fun configureContentTransform(texture: View, width: Int, height: Int, rotation: Int) {
+        contentRotation = rotation
+        val tx = if (rotation == 2) width.toFloat() else if (rotation == 3) height.toFloat() else 0f
+        val ty = if (rotation == 1) width.toFloat() else if (rotation == 2) height.toFloat() else 0f
+        val degrees = RotationCoordinateSpace.contentRotationDegrees(rotation)
+        texture.pivotX = 0f
+        texture.pivotY = 0f
+        texture.rotation = degrees
+        texture.translationX = tx
+        texture.translationY = ty
+        contentMatrix.setRotate(degrees)
+        contentMatrix.postTranslate(tx, ty)
     }
 
     private fun scheduleAutoCollapse() {
@@ -1023,7 +1123,6 @@ class OverlayWindowController(
         inputRegion?.update(Region())
         updateTouchBounds(stateMachine.state != OverlayState.Collapsed, display)
         forceRender = true
-        lastRenderSubmitNanos = 0L
         postFrame()
     }
 
@@ -1047,7 +1146,6 @@ class OverlayWindowController(
         updateBackgroundDim(presentation)
         updateTouchBounds(stateMachine.state != OverlayState.Collapsed, presentation.display)
         forceRender = true
-        lastRenderSubmitNanos = 0L
     }
 
     private fun isStatusBarVisible(): Boolean {
@@ -1081,8 +1179,9 @@ class OverlayWindowController(
         region.setEmpty()
         if (snapshot.state == OverlayState.Collapsed) {
             val bounds = OverlayLayout.capsuleTouchBounds(config.geometry, display, density)
-            region.set(bounds.left - canvas.x, bounds.top - canvas.y,
-                bounds.right - canvas.x, bounds.bottom - canvas.y)
+            val host = hostParams ?: return
+            region.set(bounds.left - host.x, bounds.top - host.y,
+                bounds.right - host.x, bounds.bottom - host.y)
         } else {
             val shape = frame.shape
             shapeInputRect.set(
@@ -1093,7 +1192,9 @@ class OverlayWindowController(
             )
             shapeInputPath.reset()
             shapeInputPath.addOval(shapeInputRect, Path.Direction.CW)
-            shapeInputClip.set(0, 0, canvas.width, canvas.height)
+            shapeInputPath.transform(contentMatrix)
+            val host = hostParams ?: return
+            shapeInputClip.set(0, 0, host.width, host.height)
             region.setPath(shapeInputPath, shapeInputClip)
         }
         inputRegion?.update(region)
@@ -1246,6 +1347,10 @@ class OverlayWindowController(
         gravity = Gravity.TOP or Gravity.LEFT
         x = bounds.left
         y = bounds.top
+        OverlayRefreshRatePolicy.apply(
+            params = this,
+            display = displayManager.getDisplay(android.view.Display.DEFAULT_DISPLAY),
+        )
         title = "Glass orb overlay"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -1277,10 +1382,15 @@ class OverlayWindowController(
             gravity = Gravity.TOP or Gravity.LEFT
             x = physical.left
             y = physical.top
+            OverlayRefreshRatePolicy.apply(
+                params = this,
+                display = displayManager.getDisplay(android.view.Display.DEFAULT_DISPLAY),
+            )
             // Keep the separate non-touchable dim window under Android's
+            // Keep the separate non-touchable dim window below Android's
             // untrusted-touch opacity threshold. The view shader itself uses
-            // solid black at the gradient start, so the visible maximum stays
-            // exactly 28% while pass-through remains allowed on Android 12+.
+            // solid black at the gradient start; the configured dim amount is
+            // applied to this window alpha when the overlay updates.
             alpha = 0.28f
             title = "Glass orb background dim"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -1293,31 +1403,45 @@ class OverlayWindowController(
     private fun updateBackgroundDim(
         display: RotationDisplayGeometry = displayGeometry(),
         expandedFrame: ExpandedFrameGeometry? = null,
+        shape: ShapeFrame? = null,
     ) {
-        updateBackgroundBlur(display)
+        updateBackgroundBlur(display, shape)
         val dimView = backgroundDimView ?: return
         val dimParams = backgroundDimParams ?: return
         val physical = display.physicalBounds
-        val gradientBottom = (expandedFrame ?: OverlayLayout.expandedFrame(
+        val portrait = RotationCoordinateSpace.portraitDisplay(display)
+        val gradientBottom = OverlayLayout.expandedFrame(
             config.geometry,
-            display,
+            portrait,
             density,
-        )).visualBottomPx
-        val gradientHeight = (gradientBottom - physical.top).coerceIn(1, physical.height)
+        ).visualBottomPx
+        val gradientHeight = gradientBottom.coerceIn(1, portrait.physicalBounds.height)
         val expanded = stateMachine.state != OverlayState.Collapsed &&
             stateMachine.state != OverlayState.Hidden && stateMachine.state != OverlayState.Collapsing
         dimView.update(
             config.container.backgroundDimEnabled && expanded,
             gradientHeight,
             dimTransitionDurationMs(),
+            display.rotation,
         )
+        backgroundAmbientBlurController?.update(
+            enabled = config.container.backgroundAmbientBlurEnabled && expanded,
+            crossWindowBlurEnabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                crossWindowBlurEnabled,
+            display = display,
+            gradientHeightPx = gradientHeight,
+            blurPercent = config.container.backgroundAmbientBlurPercent,
+        )
+        val requestedDimAlpha = (config.container.backgroundDimPercent / 100f).coerceIn(0f, 0.6f)
         val changed = dimParams.width != physical.width || dimParams.height != physical.height ||
-            dimParams.x != physical.left || dimParams.y != physical.top
+            dimParams.x != physical.left || dimParams.y != physical.top ||
+            abs(dimParams.alpha - requestedDimAlpha) > 0.001f
         if (changed) {
             dimParams.width = physical.width
             dimParams.height = physical.height
             dimParams.x = physical.left
             dimParams.y = physical.top
+            dimParams.alpha = requestedDimAlpha
             runCatching { windowManager.updateViewLayout(dimView, dimParams) }
                 .onFailure { onFatalError(it.message ?: "无法更新背景遮罩") }
         }
@@ -1327,6 +1451,10 @@ class OverlayWindowController(
         presentation: PresentationGeometry,
     ) {
         updateBackgroundDim(presentation.display, presentation.expandedFrame)
+    }
+
+    private fun updateBackgroundDim(frame: RenderPresentationFrame) {
+        updateBackgroundDim(frame.presentation.display, frame.presentation.expandedFrame, frame.shape)
     }
 
     /** Keeps the dim layer's alpha transition on the same slower timing as the shape spring. */
@@ -1343,6 +1471,7 @@ class OverlayWindowController(
         removeFrame()
         mainHandler.removeCallbacks(permissionCheck)
         unregisterCrossWindowBlurCapabilityListener()
+        displayManager.unregisterDisplayListener(displayListener)
         val textureView = view
         inputRegion?.close()
         inputRegion = null
@@ -1359,6 +1488,8 @@ class OverlayWindowController(
         backgroundDimParams = null
         backgroundBlurController?.destroy()
         backgroundBlurController = null
+        backgroundAmbientBlurController?.destroy()
+        backgroundAmbientBlurController = null
         AccessibilityOverlayBridge.updateTouchBounds(null)
         if (textureView == null) return
         try {
@@ -1368,51 +1499,101 @@ class OverlayWindowController(
         }
     }
 
-    private fun updateBackgroundBlur(display: RotationDisplayGeometry = displayGeometry()) {
+    private fun updateBackgroundBlur(
+        display: RotationDisplayGeometry = displayGeometry(),
+        shape: ShapeFrame? = null,
+    ) {
         val controller = backgroundBlurController ?: return
-        val expanded = stateMachine.state == OverlayState.Wave || stateMachine.state == OverlayState.Thinking
+        val expanded = stateMachine.state != OverlayState.Collapsed && stateMachine.state != OverlayState.Hidden
+        val blurVisibility = backgroundBlurVisibilityFactor()
         val visible = view != null && screenOn && expanded &&
-            !fullscreenAutoHidden && fullscreenTransition == FullscreenCapsulePhase.None
-        // Window-level background blur is a compositor effect. Its window must
-        // remain stable while the orb breathes and its contents animate;
-        // feeding the animated GLES bounds to WindowManager causes repeated
-        // Dialog layout transactions and visible surface flashing. The orb's
-        // settled touch bounds are the correct stable sampling aperture. They
-        // are refreshed by applyPendingLayoutUpdate when the user changes the
-        // geometry or the display changes, not once per rendered frame.
-        val stableBounds = if (visible) {
-            OverlayLayout.orbTouchBounds(config.geometry, display, density)
-        } else {
-            null
-        }
+            !fullscreenAutoHidden && fullscreenTransition == FullscreenCapsulePhase.None &&
+            blurVisibility > 0f
+        val apertureBounds = if (visible) {
+            shape?.let { animatedBlurAperture(it, display) }
+                ?: OverlayLayout.orbTouchBounds(config.geometry, display, density)
+        } else null
+        // The floating background window itself has these bounds. Its official
+        // round-rect drawable turns a square into a true circular blur and a
+        // deformed glass shape into a pill, with layout updates coalesced.
+        val windowBounds = apertureBounds
         controller.update(
             BackgroundBlurRequest(
                 userEnabled = config.container.backgroundBlurEnabled,
                 apiLevel = Build.VERSION.SDK_INT,
-                crossWindowBlurEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    windowManager.isCrossWindowBlurEnabled
-                } else {
-                    false
-                },
+                crossWindowBlurEnabled = crossWindowBlurEnabled,
                 visible = visible,
-                bounds = stableBounds,
+                windowBounds = windowBounds,
+                apertureBounds = apertureBounds,
+                blurRadiusPx = (
+                    BackgroundBlurPolicy.radiusPxFromPercent(config.container.backgroundBlurPercent) *
+                        blurVisibility
+                    ).roundToInt(),
                 shape = BackgroundBlurPolicy.shapeFor(config.geometry),
             ),
+        )
+    }
+
+    private fun backgroundBlurVisibilityFactor(): Float = when (stateMachine.state) {
+        OverlayState.Expanding,
+        OverlayState.Collapsing,
+        OverlayState.Collapsed,
+        OverlayState.Hidden,
+        -> 0f
+
+        OverlayState.Wave,
+        OverlayState.Thinking,
+        -> {
+            val startedAt = backgroundBlurRevealStartNanos
+            if (startedAt == Long.MIN_VALUE) {
+                1f
+            } else {
+                val elapsed = (System.nanoTime() - startedAt).coerceAtLeast(0L).toFloat() /
+                    BLUR_REVEAL_DURATION_NANOS
+                smoothStep(elapsed)
+            }
+        }
+
+        is OverlayState.SwipeTracking -> 1f
+    }
+
+    private fun smoothStep(value: Float): Float {
+        val t = value.coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
+
+    /** Maps the canonical GL shape to the physical display without changing its orientation. */
+    private fun animatedBlurAperture(shape: ShapeFrame, display: RotationDisplayGeometry): IntRect? {
+        val canvas = params ?: return null
+        val left = (shape.centerX - shape.shapeWidth * 0.5f).roundToInt()
+        val top = shape.top.roundToInt()
+        val portraitBounds = IntRect(
+            canvas.x + left,
+            canvas.y + top,
+            canvas.x + left + shape.shapeWidth.roundToInt(),
+            canvas.y + top + shape.shapeHeight.roundToInt(),
+        )
+        return RotationCoordinateSpace.mapPortraitRect(
+            portraitBounds,
+            display.physicalBounds,
+            display.rotation,
         )
     }
 
     private fun registerCrossWindowBlurCapabilityListener() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || crossWindowBlurListenerRegistered) return
         runCatching {
+            crossWindowBlurEnabled = windowManager.isCrossWindowBlurEnabled
             windowManager.addCrossWindowBlurEnabledListener(context.mainExecutor, crossWindowBlurListener)
             crossWindowBlurListenerRegistered = true
-        }
+        }.onFailure { crossWindowBlurEnabled = false }
     }
 
     private fun unregisterCrossWindowBlurCapabilityListener() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || !crossWindowBlurListenerRegistered) return
         runCatching { windowManager.removeCrossWindowBlurEnabledListener(crossWindowBlurListener) }
         crossWindowBlurListenerRegistered = false
+        crossWindowBlurEnabled = false
     }
 
     private fun postFrame() {
@@ -1433,6 +1614,7 @@ class OverlayWindowController(
         if (framePosted) choreographer.removeFrameCallback(frameCallback)
         framePosted = false
     }
+
 
     private fun markStateStart(timeNanos: Long = System.nanoTime()) {
         stateStartNanos = timeNanos
@@ -1471,6 +1653,7 @@ class OverlayWindowController(
     }
 
     private companion object {
+        const val BLUR_REVEAL_DURATION_NANOS = 180_000_000f
         const val PERMISSION_CHECK_INTERVAL_MS = 15_000L
         const val STATUS_BAR_VISIBILITY_CHECK_MS = 200L
         // Response values are tuned against the settled thresholds below:
@@ -1480,6 +1663,5 @@ class OverlayWindowController(
         const val FULLSCREEN_SHOW_RESPONSE = 0.78f
         const val FULLSCREEN_SHOW_DAMPING = 0.64f
         const val ASSISTANT_COLLAPSE_DELAY_MS = 420L
-        const val BACKGROUND_BLUR_RADIUS_DP = 32f
     }
 }

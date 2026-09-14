@@ -8,9 +8,11 @@ import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLExt
 import android.opengl.EGLSurface
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
+import android.view.Surface
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -178,9 +180,30 @@ internal class GlRenderLoop(
             0,
         )
         check(eglSurface != EGL14.EGL_NO_SURFACE) { "Transparent EGL window surface creation failed" }
+        requestSurfaceFrameRate()
         check(EGL14.eglMakeCurrent(display, eglSurface, eglSurface, eglContext)) { "eglMakeCurrent failed" }
         pipeline = GlOrbPipeline(context, density)
         Log.d(TAG, "EGL initialized: version ${version[0]}.${version[1]}")
+    }
+
+    /**
+     * Window refresh-rate hints are sufficient on most devices. Xiaomi can
+     * keep a TextureView's producer at 60 Hz unless that compositor surface
+     * also declares the intended rate, so request the same 120 Hz directly on
+     * the SurfaceTexture-backed layer.
+     */
+    private fun requestSurfaceFrameRate() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        runCatching {
+            val surface = Surface(surfaceTexture)
+            try {
+                surface.setFrameRate(TARGET_FRAME_RATE_HZ, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT)
+            } finally {
+                surface.release()
+            }
+        }.onFailure { error ->
+            Log.w(TAG, "Unable to request the GL surface frame rate", error)
+        }
     }
 
     private fun recreateContext() {
@@ -209,5 +232,6 @@ internal class GlRenderLoop(
 
     private companion object {
         const val TAG = "GlassOrbRenderer"
+        const val TARGET_FRAME_RATE_HZ = 120f
     }
 }

@@ -6,25 +6,24 @@ import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
-import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
-import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.core.content.ContextCompat
 import androidx.activity.BackEventCompat
 import com.cxcboss.glassorb.BuildConfig
 import com.cxcboss.glassorb.data.ConfigGroup
-import com.cxcboss.glassorb.data.ConfigPreset
 import com.cxcboss.glassorb.model.HorizontalAnchor
 import com.cxcboss.glassorb.model.OrbConfig
 import com.cxcboss.glassorb.overlay.OrbOverlayService
@@ -33,12 +32,9 @@ import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.card.MaterialCardView
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.radiobutton.MaterialRadioButton
 import com.google.android.material.slider.Slider
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
 import java.util.ArrayDeque
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -63,11 +59,7 @@ internal data class NativeSettingsCallbacks(
     val hideOverlay: () -> Unit,
     val stopOverlay: () -> Unit,
     val updateConfig: (OrbConfig) -> Unit,
-    val applyPreset: (ConfigPreset) -> Unit,
     val resetGroup: (ConfigGroup) -> Unit,
-    val resetAll: () -> Unit,
-    val exportJson: () -> String,
-    val importJson: (String, (Result<OrbConfig>) -> Unit) -> Unit,
     val setAutoStartEnabled: (Boolean) -> Unit,
 )
 
@@ -77,18 +69,17 @@ internal data class NativeSettingsCallbacks(
  * app-specific imitation of sliders, switches or dialogs is used here.
  */
 internal class NativeSettingsController(
-    private val activity: MainActivity,
+    private val activity: ComponentActivity,
     private val root: FrameLayout,
     private val callbacks: NativeSettingsCallbacks,
+    private val initialScreenKey: String? = null,
+    private val onRootBack: (() -> Unit)? = null,
 ) {
     private sealed interface Screen {
         data object Home : Screen
         data object Overlay : Screen
         data class Group(val group: ConfigGroup) : Screen
-        data object Presets : Screen
-        data object Data : Screen
         data object About : Screen
-        data object Licenses : Screen
     }
 
     private enum class ParameterId { TouchAreaScale }
@@ -99,8 +90,8 @@ internal class NativeSettingsController(
     )
 
     private val density = activity.resources.displayMetrics.density
+    private val refreshRateController = SettingsRefreshRateController(activity)
     private val pages = ArrayDeque<PageEntry>()
-    private var sliderTracking = false
     private var refreshAfterConfigFor: Screen? = null
     private var navigationAnimating = false
     private var config: OrbConfig = OrbConfig.reference()
@@ -132,11 +123,14 @@ internal class NativeSettingsController(
     fun updateConfig(value: OrbConfig) {
         val changed = config != value
         config = value
-        // Do not rebuild the active page for ordinary slider samples: it would
-        // steal the gesture. Explicit reset/import actions request one refresh.
-        if (changed && !sliderTracking) {
+        // Controls update their own visual state in-place. Rebuilding a page
+        // after every switch/radio interaction interrupts its pressed feedback
+        // and makes taps feel unreliable. Only explicit bulk changes request a
+        // refresh to reflect values that changed outside the active control.
+        val refreshScreen = refreshAfterConfigFor
+        if (changed && refreshScreen != null) {
             refreshAfterConfigFor = null
-            refreshCurrentPage()
+            if (refreshScreen == currentScreen()) refreshCurrentPage()
         }
     }
 
@@ -169,10 +163,7 @@ internal class NativeSettingsController(
             is ConfigGroup -> Screen.Group(screen)
             is String -> when (screen) {
                 "overlay" -> Screen.Overlay
-                "presets" -> Screen.Presets
-                "data" -> Screen.Data
                 "about" -> Screen.About
-                "licenses" -> Screen.Licenses
                 else -> Screen.Home
             }
             else -> Screen.Home
@@ -186,14 +177,17 @@ internal class NativeSettingsController(
         navigationAnimating = true
         page.animate()
             .translationX(0f)
-            .setDuration(300L)
+            .setDuration(PAGE_NAVIGATION_DURATION_MS)
             .setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f))
             .withEndAction { navigationAnimating = false }
             .start()
     }
 
     fun goBack(): Boolean {
-        if (pages.size <= 1) return false
+        if (pages.size <= 1) {
+            onRootBack?.invoke()
+            return onRootBack != null
+        }
         // Keep the previous page mounted and untouched. This preserves scroll
         // position and slider progress while the top page animates away.
         if (navigationAnimating) return true
@@ -204,7 +198,7 @@ internal class NativeSettingsController(
         navigationAnimating = true
         leaving.view.animate()
             .translationX(distance)
-            .setDuration(300L)
+            .setDuration(PAGE_NAVIGATION_DURATION_MS)
             .setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f))
             .withEndAction {
                 if (pages.peekLast() === leaving) {
@@ -244,20 +238,22 @@ internal class NativeSettingsController(
     }
 
     private fun addInitialPage() {
-        val page = createPage(Screen.Home)
+        val initial = decodeScreen(initialScreenKey) ?: Screen.Home
+        val page = createPage(initial)
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        pages.addLast(PageEntry(Screen.Home, page))
+        pages.addLast(PageEntry(initial, page))
     }
 
     private fun restoreTopPage(state: Bundle?) {
         val restored = decodeScreen(state?.getString(KEY_SCREEN)) ?: return
-        if (restored == Screen.Home) {
+        if (restored == currentScreen()) {
             val scrollY = state?.getInt(KEY_SCROLL_Y, 0) ?: 0
             pages.peekLast()?.view?.let { view ->
                 findFirstScroll(view)?.let { scroll -> scroll.post { scroll.scrollTo(0, scrollY) } }
             }
             return
         }
+        if (currentScreen() != Screen.Home) return
         val page = createPage(restored)
         root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         pages.addLast(PageEntry(restored, page))
@@ -290,7 +286,7 @@ internal class NativeSettingsController(
             setBackgroundColor(themeColor(android.R.attr.colorBackground))
         }
         val toolbar = MaterialToolbar(activity).apply {
-            title = screenTitle(screen)
+            title = ui(screenTitle(screen))
             setTitleTextColor(themeColor(android.R.attr.textColorPrimary))
             setBackgroundColor(themeColor(android.R.attr.colorBackground))
             // Material 3 uses a flat app bar; the edge tint only appears while
@@ -300,7 +296,7 @@ internal class NativeSettingsController(
         }
         if (screen !is Screen.Home) {
             toolbar.navigationIcon = ContextCompat.getDrawable(activity, com.cxcboss.glassorb.R.drawable.ic_arrow_back)
-            toolbar.navigationContentDescription = "返回"
+            toolbar.navigationContentDescription = ui("返回")
             toolbar.setNavigationOnClickListener { goBack() }
         }
         page.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight()))
@@ -312,9 +308,10 @@ internal class NativeSettingsController(
                 tag = "settings-scroll"
                 isFillViewport = true
                 clipToPadding = false
-                setPadding(0, 0, 0, dp(24f))
+            setPadding(0, 0, 0, dp(32f))
                 addView(buildScreen(screen), ViewGroup.LayoutParams.MATCH_PARENT)
             }
+            refreshRateController.attach(scroll)
             page.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         }
         return page
@@ -324,10 +321,7 @@ internal class NativeSettingsController(
         Screen.Home -> buildHome()
         Screen.Overlay -> buildOverlayDetails()
         is Screen.Group -> buildGroup(screen.group)
-        Screen.Presets -> buildPresets()
-        Screen.Data -> buildDataManagement()
         Screen.About -> buildAbout()
-        Screen.Licenses -> buildLicenses()
     }
 
     private fun buildHome(toolbar: MaterialToolbar? = null): View {
@@ -339,32 +333,42 @@ internal class NativeSettingsController(
             tag = "settings-scroll"
             isFillViewport = true
             clipToPadding = false
-            setPadding(0, 0, 0, dp(92f))
+            setPadding(0, 0, 0, dp(100f))
         }
+        refreshRateController.attach(scroll)
         shell.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        val bottomBar = MaterialCardView(activity).apply {
-            radius = dp(28f).toFloat()
-            cardElevation = dp(8f).toFloat()
-            setCardBackgroundColor(themeColor(com.google.android.material.R.attr.colorSurface))
-            contentDescription = "设置页面切换"
+        val bottomBar = FrameLayout(activity).apply {
+            // Use an ordinary rounded surface so MaterialCardView's theme
+            // tint/foreground cannot replace the requested white/dark pill.
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(56f).toFloat()
+                setColor(homeBottomBarColor())
+            }
+            clipToOutline = true
+            elevation = dp(8f).toFloat()
+            contentDescription = ui("设置页面切换")
         }
         val bottomButtons = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
+            gravity = Gravity.CENTER
+            setPadding(dp(6f), dp(4f), dp(6f), dp(4f))
         }
-        val commonButton = homeTabButton(android.R.drawable.ic_menu_view, "常用设置")
-        val detailButton = homeTabButton(android.R.drawable.ic_menu_manage, "详细设置")
-        bottomButtons.addView(commonButton, LinearLayout.LayoutParams(dp(48f), dp(48f)).apply {
-            rightMargin = dp(4f)
+        val commonButton = homeTabButton(com.cxcboss.glassorb.R.drawable.ic_home_common, "常用")
+        val detailButton = homeTabButton(com.cxcboss.glassorb.R.drawable.ic_home_detail, "详细")
+        installPressScale(commonButton, bottomBar)
+        installPressScale(detailButton, bottomBar)
+        installPressScale(bottomBar)
+        bottomButtons.addView(commonButton, LinearLayout.LayoutParams(0, dp(48f), 1f).apply {
+            rightMargin = dp(2f)
         })
-        bottomButtons.addView(detailButton, LinearLayout.LayoutParams(dp(48f), dp(48f)).apply {
-            leftMargin = dp(4f)
+        bottomButtons.addView(detailButton, LinearLayout.LayoutParams(0, dp(48f), 1f).apply {
+            leftMargin = dp(2f)
         })
-        bottomBar.addView(bottomButtons, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        shell.addView(bottomBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        bottomBar.addView(bottomButtons, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        shell.addView(bottomBar, FrameLayout.LayoutParams(dp(156f), dp(56f)).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            bottomMargin = dp(16f)
+            bottomMargin = dp(10f)
         })
 
         fun selectTab(tab: HomeTab) {
@@ -373,7 +377,7 @@ internal class NativeSettingsController(
             val common = tab == HomeTab.Common
             styleHomeTabButton(commonButton, common)
             styleHomeTabButton(detailButton, !common)
-            toolbar?.title = if (common) "常用设置" else "详细设置"
+            toolbar?.title = ui(if (common) "常用设置" else "详细设置")
             scroll.removeAllViews()
             scroll.addView(
                 if (common) buildCommonContent() else buildMoreContent(),
@@ -390,7 +394,7 @@ internal class NativeSettingsController(
     private fun buildCommonContent(): View {
         val content = column()
         section(content, "灵动岛") {
-            addSwitchRow(this, "显示灵动岛", "控制悬浮层是否显示在其他应用上方。", runtimeStatus == OverlayRuntimeStatus.Visible) { enabled ->
+            addSwitchRow(this, "显示灵动岛", null, runtimeStatus == OverlayRuntimeStatus.Visible) { enabled ->
                 when (resolveOverlayAction(enabled, overlayPermission, runtimeStatus)) {
                     OverlayAction.RequestPermission -> callbacks.requestOverlayPermission()
                     OverlayAction.Show -> callbacks.showOverlay()
@@ -399,41 +403,49 @@ internal class NativeSettingsController(
                     OverlayAction.None -> Unit
                 }
             }
-            addSwitchRow(this, "向下展开", "只改变玻璃球弹出位置，胶囊位置保持不变。", config.geometry.expandBelowCapsule) { enabled ->
+            addSwitchRow(this, "向下展开", null, config.geometry.expandBelowCapsule) { enabled ->
                 updateConfig { it.copy(geometry = it.geometry.copy(expandBelowCapsule = enabled)) }
-            }
-            addSwitchRow(this, "开机自启动", "开机后自动恢复悬浮层。", autoStartEnabled) { enabled ->
-                autoStartEnabled = enabled
-                callbacks.setAutoStartEnabled(enabled)
             }
         }
 
         addSubheading(content, "尺寸与位置")
-        settingCard(content, "胶囊") {
-            addSlider(this, "胶囊宽度", config.geometry.capsuleWidthDp, OrbConfig.reference().geometry.capsuleWidthDp, 0f..220f, "dp") { value ->
+        settingCard(content, "灵动岛大小") {
+            addSlider(this, "宽度", config.geometry.capsuleWidthDp, OrbConfig.reference().geometry.capsuleWidthDp, 0f..220f, "dp") { value ->
                 updateConfig { it.copy(geometry = it.geometry.copy(capsuleWidthDp = value)) }
             }
-            addSlider(this, "胶囊高度", config.geometry.capsuleHeightDp, OrbConfig.reference().geometry.capsuleHeightDp, 0f..64f, "dp") { value ->
+            addSlider(this, "高度", config.geometry.capsuleHeightDp, OrbConfig.reference().geometry.capsuleHeightDp, 0f..64f, "dp") { value ->
                 updateConfig { it.copy(geometry = it.geometry.copy(capsuleHeightDp = value)) }
             }
         }
-        settingCard(content, "玻璃球") {
-            addSlider(this, "玻璃球宽度", config.geometry.orbWidthDp, OrbConfig.reference().geometry.orbWidthDp, 88f..260f, "dp") { value ->
+        settingCard(content, "位置") {
+            val verticalDensity = activity.resources.displayMetrics.density.coerceAtLeast(0.1f)
+            addSlider(
+                this,
+                "顶部偏移",
+                config.geometry.verticalOffsetDp * verticalDensity,
+                OrbConfig.reference().geometry.verticalOffsetDp * verticalDensity,
+                0f..300f,
+                "px",
+                decimals = 0,
+            ) { value ->
+                updateConfig { current ->
+                    current.copy(geometry = current.geometry.copy(verticalOffsetDp = value / verticalDensity))
+                }
+            }
+            addSlider(this, "水平", config.geometry.horizontalOffsetDp, OrbConfig.reference().geometry.horizontalOffsetDp, -200f..200f, "dp") { value ->
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(horizontalOffsetDp = value)) }
+            }
+        }
+        settingCard(content, "玻璃球大小") {
+            addSlider(this, "宽度", config.geometry.orbWidthDp, OrbConfig.reference().geometry.orbWidthDp, 88f..260f, "dp") { value ->
                 updateConfig { it.copy(geometry = it.geometry.copy(orbWidthDp = value)) }
             }
-            addSlider(this, "玻璃球高度", config.geometry.orbHeightDp, OrbConfig.reference().geometry.orbHeightDp, 88f..260f, "dp") { value ->
+            addSlider(this, "高度", config.geometry.orbHeightDp, OrbConfig.reference().geometry.orbHeightDp, 88f..260f, "dp") { value ->
                 updateConfig { it.copy(geometry = it.geometry.copy(orbHeightDp = value)) }
             }
         }
 
-        section(content, "显示行为") {
-            addSwitchRow(this, "背景压暗", "展开时压暗范围随玻璃球大小变化，收起时平滑消失。", config.container.backgroundDimEnabled) { enabled ->
-                updateConfig { it.copy(container = it.container.copy(backgroundDimEnabled = enabled)) }
-            }
-            addSwitchRow(this, "横屏隐藏", "横屏时隐藏灵动岛与触控区域。", config.geometry.hideWhenLandscape) { enabled ->
-                updateConfig { it.copy(geometry = it.geometry.copy(hideWhenLandscape = enabled)) }
-            }
-        }
+        section(content, "背景效果") { addBackgroundEffectControls(this) }
         return content
     }
 
@@ -441,54 +453,39 @@ internal class NativeSettingsController(
         val content = column()
         addSubheading(content, "全部设置")
         settingCard(content) {
-            addCategoryRow(this, "位置与触控", "锚点、偏移、尺寸、触控倍率和横屏策略", android.R.drawable.ic_menu_manage) {
+            addCategoryRow(this, "位置与触控", "位置、尺寸和触控", com.cxcboss.glassorb.R.drawable.ic_category_geometry) {
                 navigate(ConfigGroup.Geometry)
             }
-            addCategoryRow(this, "颜色与光影", "内部颜色、高光、阴影与自动混合焦散", android.R.drawable.ic_menu_view) {
+            addCategoryRow(this, "颜色与光影", "颜色、高光和阴影", com.cxcboss.glassorb.R.drawable.ic_category_colors) {
                 navigate(ConfigGroup.Glass)
             }
-            addCategoryRow(this, "背景与暗部", "背景压暗、局部模糊与球体暗部", android.R.drawable.ic_menu_gallery) {
+            addCategoryRow(this, "背景与暗部", "三种背景效果与暗部", com.cxcboss.glassorb.R.drawable.ic_category_container) {
                 navigate(ConfigGroup.Container)
             }
-            addCategoryRow(this, "波形与光带", "波形线条、色散、填光与亮度", android.R.drawable.ic_menu_slideshow) {
+            addCategoryRow(this, "波形与光带", "波形、色散和亮度", com.cxcboss.glassorb.R.drawable.ic_category_wave) {
                 navigate(ConfigGroup.Wave)
             }
-            addCategoryRow(this, "圆点与粒子", "圆点大小、光晕与旋转", android.R.drawable.ic_menu_crop) {
+            addCategoryRow(this, "圆点与粒子", "圆点、光晕和旋转", com.cxcboss.glassorb.R.drawable.ic_category_dots) {
                 navigate(ConfigGroup.Dots)
             }
-            addCategoryRow(this, "手势与动效", "展开、收起、拖动、回弹和自动收起", android.R.drawable.ic_menu_rotate) {
+            addCategoryRow(this, "手势与动效", "展开、收起与拖动", com.cxcboss.glassorb.R.drawable.ic_category_motion) {
                 navigate(ConfigGroup.Motion)
             }
-            addCategoryRow(this, "性能与清晰度", "帧率、渲染比例和静态胶囊省电策略", android.R.drawable.ic_menu_sort_by_size) {
+            addCategoryRow(this, "性能与清晰度", "渲染比例与刷新率", com.cxcboss.glassorb.R.drawable.ic_category_performance) {
                 navigate(ConfigGroup.Performance)
             }
         }
 
-        addSubheading(content, "工具与应用")
+        addSubheading(content, "其它")
         settingCard(content) {
-            addCategoryRow(this, "运行与权限", "悬浮窗、无障碍触控和国产 ROM 适配", android.R.drawable.ic_menu_preferences) {
+            addCategoryRow(this, "运行与权限", "权限与系统兼容", com.cxcboss.glassorb.R.drawable.ic_category_accessibility) {
                 navigate("overlay")
             }
-            addCategoryRow(this, "预设与备份", "切换效果与恢复配置", android.R.drawable.ic_menu_save) {
-                navigate("presets")
-            }
-            addCategoryRow(this, "关于", "版本、权限边界与开源许可", android.R.drawable.ic_menu_info_details) {
+            addCategoryRow(this, "关于", "版本与来源", com.cxcboss.glassorb.R.drawable.ic_category_about) {
                 navigate("about")
             }
         }
         return content
-    }
-
-    private fun addAnchorPicker(parent: LinearLayout) {
-        val anchors = RadioGroup(activity).apply {
-            orientation = RadioGroup.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12f), 0, dp(12f), dp(4f))
-        }
-        addAnchor(anchors, "左侧", HorizontalAnchor.Left)
-        addAnchor(anchors, "居中", HorizontalAnchor.Center)
-        addAnchor(anchors, "右侧", HorizontalAnchor.Right)
-        parent.addView(anchors, matchWrap())
     }
 
     private fun settingCard(parent: LinearLayout, title: String? = null, content: LinearLayout.() -> Unit) {
@@ -499,15 +496,15 @@ internal class NativeSettingsController(
         }
         if (!title.isNullOrBlank()) {
             card.addView(TextView(activity).apply {
-                text = title
+                text = ui(title)
                 textSize = 18f
                 setTextColor(themeColor(android.R.attr.textColorPrimary))
-                setPadding(dp(20f), dp(18f), dp(20f), dp(8f))
+            setPadding(dp(20f), dp(20f), dp(20f), dp(10f))
             }, matchWrap())
         }
         card.content()
         parent.addView(card, matchWrap().apply {
-            setMargins(dp(12f), 0, dp(12f), dp(12f))
+            setMargins(dp(16f), 0, dp(16f), dp(16f))
         })
     }
 
@@ -521,23 +518,26 @@ internal class NativeSettingsController(
         val row = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(72f)
-            setPadding(dp(20f), dp(8f), dp(12f), dp(8f))
+            minimumHeight = dp(80f)
+            setPadding(dp(20f), dp(10f), dp(12f), dp(10f))
             background = selectableBackground()
-            contentDescription = title
-            setOnClickListener { onClick() }
+            contentDescription = ui(title)
+            isClickable = true
+            isFocusable = true
         }
+        row.setOnClickListener { onClick() }
         val icon = ImageView(activity).apply {
             setImageResource(iconRes)
-            imageTintList = android.content.res.ColorStateList.valueOf(themeColor(android.R.attr.colorAccent))
-            background = roundedSurfaceVariant()
-            setPadding(dp(9f), dp(9f), dp(9f), dp(9f))
+            imageTintList = android.content.res.ColorStateList.valueOf(themeColor(android.R.attr.textColorPrimary))
             contentDescription = null
         }
-        row.addView(icon, LinearLayout.LayoutParams(dp(42f), dp(42f)).apply {
+        row.addView(icon, LinearLayout.LayoutParams(dp(28f), dp(48f)).apply {
             rightMargin = dp(14f)
         })
-        row.addView(labelColumn(title, detail), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(
+            labelColumn(title, detail),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
         row.addView(ImageView(activity).apply {
             setImageResource(com.cxcboss.glassorb.R.drawable.ic_arrow_forward)
             alpha = 0.65f
@@ -547,34 +547,94 @@ internal class NativeSettingsController(
         divider(parent)
     }
 
-    private fun homeTabButton(iconRes: Int, description: String): ImageButton = ImageButton(activity).apply {
-        setImageResource(iconRes)
-        contentDescription = description
-        scaleType = ImageView.ScaleType.CENTER
-        setPadding(dp(12f), dp(12f), dp(12f), dp(12f))
+    private fun homeTabButton(iconRes: Int, description: String): LinearLayout = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        minimumHeight = dp(48f)
+        setPadding(dp(8f), dp(3f), dp(8f), dp(3f))
+        contentDescription = ui(description)
         stateListAnimator = null
         isFocusable = true
+        isClickable = true
+        addView(ImageView(activity).apply {
+            tag = "home-tab-icon"
+            setImageResource(iconRes)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+        }, LinearLayout.LayoutParams(dp(22f), dp(22f)))
+        addView(TextView(activity).apply {
+            tag = "home-tab-label"
+            text = ui(description)
+            textSize = 11f
+            maxLines = 1
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(18f)))
     }
 
-    private fun styleHomeTabButton(button: ImageButton, selected: Boolean) {
+    private fun installPressScale(view: View, target: View = view) {
+        val ease = PathInterpolator(0.2f, 0f, 0f, 1f)
+        view.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    target.animate().cancel()
+                    target.animate()
+                        .scaleX(1.024f)
+                        .scaleY(1.024f)
+                        .setDuration(220L)
+                        .setInterpolator(ease)
+                        .start()
+                }
+
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    target.animate().cancel()
+                    target.animate()
+                        .scaleX(1f)
+                        .scaleY(1f)
+                        .setDuration(320L)
+                        .setInterpolator(ease)
+                        .start()
+                }
+            }
+            // Keep the normal View touch pipeline active so the existing
+            // click listener and accessibility semantics remain unchanged.
+            false
+        }
+    }
+
+    private fun styleHomeTabButton(button: LinearLayout, selected: Boolean) {
         button.isSelected = selected
         button.isActivated = selected
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            button.stateDescription = if (selected) "当前页面" else "切换页面"
+            button.stateDescription = ui(if (selected) "当前页面" else "切换页面")
+        }
+        val foreground = if (selected) {
+            themeColor(android.R.attr.colorAccent)
+        } else {
+            themeColor(android.R.attr.textColorSecondary)
         }
         button.background = android.graphics.drawable.GradientDrawable().apply {
-            shape = android.graphics.drawable.GradientDrawable.OVAL
-            setColor(if (selected) themeColor(android.R.attr.colorAccent) else Color.rgb(43, 46, 53))
+            // The selected area is an inner pill, with the same radius and
+            // surface color as the floating bar around it.
+            cornerRadius = dp(48f).toFloat()
+            setColor(
+                if (!selected) Color.TRANSPARENT
+                else homeBottomBarColor(),
+            )
         }
-        button.imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+        button.clipToOutline = true
+        (button.findViewWithTag<ImageView>("home-tab-icon"))?.imageTintList =
+            android.content.res.ColorStateList.valueOf(foreground)
+        (button.findViewWithTag<TextView>("home-tab-label"))?.setTextColor(foreground)
     }
+
+    private fun homeBottomBarColor(): Int =
+        if (isDarkTheme()) Color.rgb(35, 36, 39) else Color.WHITE
 
     private fun buildOverlayDetails(): View {
         val content = column()
         val status = runtimeStatus
         section(content, "状态") {
             addTextRow(this, "运行状态", nativeStatusLabel(status))
-            addNavigationRow(this, "悬浮权限", if (overlayPermission) "已允许" else "未允许") {
+            addNavigationRow(this, "悬浮窗权限", if (overlayPermission) "已允许" else "未允许") {
                 callbacks.requestOverlayPermission()
             }
             if (status is OverlayRuntimeStatus.Error) {
@@ -585,24 +645,11 @@ internal class NativeSettingsController(
             addNavigationRow(
                 this,
                 "无障碍触控服务",
-                if (accessibilityEnabled) "已开启 · 用于状态栏区域触控" else "未开启 · 点击前往系统授权",
+                if (accessibilityEnabled) "已开启 · 用于状态栏触控" else "未开启 · 点击授权",
             ) { callbacks.requestAccessibilityPermission() }
-            addNote(this, "用于创建可信触控窗口并监听已知系统语音助手的窗口出现与消失；仅读取交互窗口的包名元数据，不读取文字、不截图、不录音、不执行手势、不监听按键。国产 ROM 如有电池优化或自启动管理，请将本应用设为允许。")
+            addNote(this, "仅用于状态栏触控和识别已知助手窗口；不读取文字、截图、录音或执行手势。")
         }
-        section(content, "操作") {
-            addNavigationRow(this, if (overlayPermission) "启动悬浮层" else "授权并返回") {
-                if (overlayPermission) callbacks.startOverlay() else callbacks.requestOverlayPermission()
-            }
-            addNavigationRow(this, "显示悬浮层") {
-                if (overlayPermission) callbacks.showOverlay() else callbacks.requestOverlayPermission()
-            }
-            addNavigationRow(this, "隐藏悬浮层") { callbacks.hideOverlay() }
-            addActionRow(this, "停止悬浮层", destructive = true) { callbacks.stopOverlay() }
-        }
-        addNote(
-            content,
-            "首页开关关闭时仅隐藏悬浮球。停止会结束服务；重新开启总开关即可启动。系统状态栏、安全页面与锁屏不保证覆盖。",
-        )
+        addNote(content, "首页开关可显示或隐藏灵动岛；锁屏、安全页面和系统状态栏不保证显示。")
         return content
     }
 
@@ -621,7 +668,6 @@ internal class NativeSettingsController(
         addActionRow(content, "恢复本组默认值", destructive = true) {
             confirmResetGroup(group)
         }
-        addNote(content, "仅恢复本页参数，其他分组保持当前设置。")
         return groupLooseContent(content)
     }
 
@@ -652,27 +698,25 @@ internal class NativeSettingsController(
                 current.copy(geometry = current.geometry.copy(verticalOffsetDp = value / verticalDensity))
             }
         }
-        addNote(content, "0 px = 真实物理屏幕顶边，最多向下 300 px。")
         addSlider(content, "水平微调", config.geometry.horizontalOffsetDp, OrbConfig.reference().geometry.horizontalOffsetDp, -200f..200f, "dp") { value ->
             updateConfig { current -> current.copy(geometry = current.geometry.copy(horizontalOffsetDp = value)) }
         }
 
-        addSubheading(content, "胶囊尺寸")
-        addNote(content, "宽度或高度为 0 时隐藏胶囊图形，触控入口仍然保留。")
-        addSlider(content, "胶囊宽度", config.geometry.capsuleWidthDp, OrbConfig.reference().geometry.capsuleWidthDp, 0f..220f, "dp") { value ->
+        addSubheading(content, "灵动岛尺寸")
+        addSlider(content, "灵动岛宽度", config.geometry.capsuleWidthDp, OrbConfig.reference().geometry.capsuleWidthDp, 0f..220f, "dp") { value ->
             updateConfig { current -> current.copy(geometry = current.geometry.copy(capsuleWidthDp = value)) }
         }
-        addSlider(content, "胶囊高度", config.geometry.capsuleHeightDp, OrbConfig.reference().geometry.capsuleHeightDp, 0f..64f, "dp") { value ->
+        addSlider(content, "灵动岛高度", config.geometry.capsuleHeightDp, OrbConfig.reference().geometry.capsuleHeightDp, 0f..64f, "dp") { value ->
             updateConfig { current -> current.copy(geometry = current.geometry.copy(capsuleHeightDp = value)) }
         }
         addSubheading(content, "玻璃球")
-        addSwitchRow(content, "向下展开", "展开后球体顶部位于胶囊底部下方 20 px", config.geometry.expandBelowCapsule) { enabled ->
+        addSwitchRow(content, "向下展开", null, config.geometry.expandBelowCapsule) { enabled ->
             updateConfig { it.copy(geometry = it.geometry.copy(expandBelowCapsule = enabled)) }
         }
         addSwitchRow(
             content,
-            "全屏时隐藏胶囊",
-            "状态栏隐藏时隐藏胶囊和触控入口，系统语音助手唤醒时仍显示玻璃球",
+            "全屏时隐藏灵动岛",
+            "全屏时隐藏。",
             config.geometry.hideWhenStatusBarHidden,
         ) { enabled ->
             updateConfig { it.copy(geometry = it.geometry.copy(hideWhenStatusBarHidden = enabled)) }
@@ -680,7 +724,7 @@ internal class NativeSettingsController(
         addSwitchRow(
             content,
             "横屏隐藏",
-            "横屏时隐藏灵动岛图形和触控区域，恢复竖屏后使用平滑动画显示",
+            "横屏时隐藏。",
             config.geometry.hideWhenLandscape,
         ) { enabled ->
             updateConfig { it.copy(geometry = it.geometry.copy(hideWhenLandscape = enabled)) }
@@ -700,17 +744,15 @@ internal class NativeSettingsController(
         addSlider(content, "玻璃球高度", config.geometry.orbHeightDp, OrbConfig.reference().geometry.orbHeightDp, 88f..260f, "dp") { value ->
             updateConfig { current -> current.copy(geometry = current.geometry.copy(orbHeightDp = value)) }
         }
-        addNote(content, "宽度与高度相同为圆形；调整其中一项即可变为椭圆。")
         addSlider(content, "外部效果余量", config.geometry.outerMarginDp, OrbConfig.reference().geometry.outerMarginDp, 8f..48f, "dp") { value ->
             updateConfig { current -> current.copy(geometry = current.geometry.copy(outerMarginDp = value)) }
         }
         addSlider(content, "效果画布比例", config.geometry.effectScale, OrbConfig.reference().geometry.effectScale, 0.9f..1.5f, decimals = 2) { value ->
             updateConfig { current -> current.copy(geometry = current.geometry.copy(effectScale = value)) }
         }
-        addSubheading(content, "胶囊触控")
-        addNote(content, "展开后触控随球体轮廓变化，球体外可操作下层内容。")
+        addSubheading(content, "灵动岛触控")
         lateinit var touchScaleRow: View
-        addSwitchRow(content, "扩大胶囊触摸区域", "仅扩大胶囊触控范围，最小 38 × 38 dp", config.geometry.enlargedTouchArea) { enabled ->
+        addSwitchRow(content, "扩大灵动岛触摸区域", null, config.geometry.enlargedTouchArea) { enabled ->
             setControlEnabled(touchScaleRow, enabled)
             updateConfig { current -> current.copy(geometry = current.geometry.copy(enlargedTouchArea = enabled)) }
         }
@@ -757,7 +799,6 @@ internal class NativeSettingsController(
         ) { value ->
             updateConfig { current -> current.copy(glass = current.glass.copy(internalHueDegrees = value)) }
         }
-        addNote(content, "调整玻璃球内部波形与圆点的整体色相，焦散颜色会同步变化。")
         addSlider(
             content,
             "上半部高光颜色",
@@ -786,7 +827,6 @@ internal class NativeSettingsController(
         addSlider(content, "焦散强度", config.glass.causticAmount, OrbConfig.reference().glass.causticAmount, 0f..3f, decimals = 2) { value ->
             updateConfig { current -> current.copy(glass = current.glass.copy(causticAmount = value)) }
         }
-        addNote(content, "焦散颜色会自动跟随玻璃球内部颜色变化，此处仅调节焦散强度。")
         addSlider(content, "阴影偏移", config.glass.shadowOffset, OrbConfig.reference().glass.shadowOffset, -3f..3f, decimals = 2) { value ->
             updateConfig { current -> current.copy(glass = current.glass.copy(shadowOffset = value)) }
         }
@@ -799,29 +839,120 @@ internal class NativeSettingsController(
     }
 
     private fun buildContainer(content: LinearLayout) {
-        addSubheading(content, "屏幕背景")
-        addSwitchRow(content, "背景压暗", "从顶部 28% 黑色渐变到透明，随展开与收起淡入淡出", config.container.backgroundDimEnabled) { enabled ->
-            updateConfig { it.copy(container = it.container.copy(backgroundDimEnabled = enabled)) }
-        }
-        addSwitchRow(
-            content,
-            "背景局部模糊",
-            "Android 12+ 且圆形玻璃球可用；椭圆或设备不支持时仅关闭模糊，保留现有效果",
-            config.container.backgroundBlurEnabled,
-        ) { enabled ->
-            updateConfig { it.copy(container = it.container.copy(backgroundBlurEnabled = enabled)) }
-        }
+        addSubheading(content, "背景效果")
+        addBackgroundEffectControls(content)
         addSubheading(content, "球体暗部")
         addSlider(content, "强度", config.container.strength, OrbConfig.reference().container.strength, 0f..4f, decimals = 2) { value ->
             updateConfig { current -> current.copy(container = current.container.copy(strength = value)) }
         }
-        addNote(content, "0 = 完全透明；提高强度可让暗部更深，最高可达到不透明纯黑。")
         addSlider(content, "渐隐跨度", config.container.fade, OrbConfig.reference().container.fade, 0f..2f, decimals = 2) { value ->
             updateConfig { current -> current.copy(container = current.container.copy(fade = value)) }
         }
         addSlider(content, "暗部衰减", config.container.gaussian, OrbConfig.reference().container.gaussian, 0.5f..16f, decimals = 1) { value ->
             updateConfig { current -> current.copy(container = current.container.copy(gaussian = value)) }
         }
+    }
+
+    /** Keeps the three independently named background treatments identical on home and detail pages. */
+    private fun addBackgroundEffectControls(parent: LinearLayout) {
+        lateinit var lowerBlurRow: View
+        lateinit var lowerBlurAmountRow: View
+        lateinit var dimAmountRow: View
+        lateinit var glassBlurRow: View
+        lateinit var glassBlurAmountRow: View
+
+        lowerBlurRow = addSwitchRow(
+            parent,
+            "下层模糊",
+            null,
+            config.container.backgroundAmbientBlurEnabled,
+        ) { enabled ->
+            setControlEnabled(glassBlurRow, !enabled)
+            setControlEnabled(lowerBlurAmountRow, enabled)
+            setControlEnabled(glassBlurAmountRow, !enabled && config.container.backgroundBlurEnabled)
+            updateConfig { current ->
+                current.copy(
+                    container = current.container.copy(
+                        backgroundAmbientBlurEnabled = enabled,
+                        backgroundBlurEnabled = if (enabled) false else current.container.backgroundBlurEnabled,
+                    ),
+                )
+            }
+        }
+        lowerBlurAmountRow = addSlider(
+            parent,
+            "下层模糊度",
+            config.container.backgroundAmbientBlurPercent,
+            OrbConfig.reference().container.backgroundAmbientBlurPercent,
+            0f..100f,
+            "%",
+            decimals = 0,
+            enabled = config.container.backgroundAmbientBlurEnabled,
+        ) { value ->
+            updateConfig { current ->
+                current.copy(container = current.container.copy(backgroundAmbientBlurPercent = value))
+            }
+        }
+
+        addSwitchRow(parent, "下层变暗", null, config.container.backgroundDimEnabled) { enabled ->
+            setControlEnabled(dimAmountRow, enabled)
+            updateConfig { current ->
+                current.copy(container = current.container.copy(backgroundDimEnabled = enabled))
+            }
+        }
+        dimAmountRow = addSlider(
+            parent,
+            "变暗程度",
+            config.container.backgroundDimPercent,
+            OrbConfig.reference().container.backgroundDimPercent,
+            0f..60f,
+            "%",
+            decimals = 0,
+            enabled = config.container.backgroundDimEnabled,
+        ) { value ->
+            updateConfig { current ->
+                current.copy(container = current.container.copy(backgroundDimPercent = value))
+            }
+        }
+
+        glassBlurRow = addSwitchRow(
+            parent,
+            "玻璃球模糊",
+            null,
+            config.container.backgroundBlurEnabled,
+        ) { enabled ->
+            setControlEnabled(lowerBlurRow, !enabled)
+            setControlEnabled(lowerBlurAmountRow, !enabled && config.container.backgroundAmbientBlurEnabled)
+            setControlEnabled(glassBlurAmountRow, enabled)
+            updateConfig { current ->
+                current.copy(
+                    container = current.container.copy(
+                        backgroundBlurEnabled = enabled,
+                        backgroundAmbientBlurEnabled = if (enabled) false else current.container.backgroundAmbientBlurEnabled,
+                    ),
+                )
+            }
+        }
+        glassBlurAmountRow = addSlider(
+            parent,
+            "玻璃球模糊度",
+            config.container.backgroundBlurPercent,
+            OrbConfig.reference().container.backgroundBlurPercent,
+            0f..100f,
+            "%",
+            decimals = 0,
+            enabled = config.container.backgroundBlurEnabled,
+        ) { value ->
+            updateConfig { current ->
+                current.copy(container = current.container.copy(backgroundBlurPercent = value))
+            }
+        }
+
+        setControlEnabled(lowerBlurRow, !config.container.backgroundBlurEnabled)
+        setControlEnabled(lowerBlurAmountRow, config.container.backgroundAmbientBlurEnabled)
+        setControlEnabled(dimAmountRow, config.container.backgroundDimEnabled)
+        setControlEnabled(glassBlurRow, !config.container.backgroundAmbientBlurEnabled)
+        setControlEnabled(glassBlurAmountRow, config.container.backgroundBlurEnabled)
     }
 
     private fun buildWave(content: LinearLayout) {
@@ -933,7 +1064,7 @@ internal class NativeSettingsController(
         }
         addSubheading(content, "自动收起")
         lateinit var countdown: View
-        addSwitchRow(content, "自动收起", "无操作时自动返回胶囊", config.motion.autoCollapseEnabled) { enabled ->
+        addSwitchRow(content, "自动收起", null, config.motion.autoCollapseEnabled) { enabled ->
             setControlEnabled(countdown, enabled)
             updateConfig { it.copy(motion = it.motion.copy(autoCollapseEnabled = enabled)) }
         }
@@ -945,150 +1076,81 @@ internal class NativeSettingsController(
 
     private fun buildPerformance(content: LinearLayout) {
         addSubheading(content, "帧率与清晰度")
-        addNote(content, "更高的帧率与渲染比例会增加耗电；实际帧率受屏幕刷新率限制。")
-        addSlider(content, "胶囊帧率", config.performance.collapsedFps.toFloat(), OrbConfig.reference().performance.collapsedFps.toFloat(), 24f..120f, "fps", 0) { value ->
-            updateConfig { current -> current.copy(performance = current.performance.copy(collapsedFps = value.toInt())) }
-        }
-        addSlider(content, "展开帧率", config.performance.expandedFps.toFloat(), OrbConfig.reference().performance.expandedFps.toFloat(), 24f..120f, "fps", 0) { value ->
-            updateConfig { current -> current.copy(performance = current.performance.copy(expandedFps = value.toInt())) }
-        }
+        addNote(content, "展开、收起与玻璃球按 120 fps 请求刷新。")
         addSlider(content, "渲染比例", config.performance.renderScale, OrbConfig.reference().performance.renderScale, 0.5f..1.25f, decimals = 2) { value ->
             updateConfig { current -> current.copy(performance = current.performance.copy(renderScale = value)) }
         }
     }
 
-    private fun buildPresets(): View {
-        val content = column()
-        addNote(content, "选择预设后会替换全部参数。")
-        addSubheading(content, "预设")
-        val radios = RadioGroup(activity).apply {
-            orientation = RadioGroup.VERTICAL
-            setPadding(dp(8f), 0, dp(8f), 0)
-        }
-        listOf(
-            "默认效果" to ConfigPreset.Reference,
-            "柔和" to ConfigPreset.Soft,
-            "明亮" to ConfigPreset.Bright,
-        ).forEach { (name, preset) ->
-            val radio = MaterialRadioButton(activity).apply {
-                text = name
-                textSize = 16f
-                minHeight = dp(48f)
-                setPadding(dp(8f), 0, dp(8f), 0)
-                isChecked = config == when (preset) {
-                    ConfigPreset.Reference -> OrbConfig.reference()
-                    ConfigPreset.Soft -> OrbConfig.soft()
-                    ConfigPreset.Bright -> OrbConfig.bright()
-                }
-                setOnClickListener {
-                    requestCurrentPageRefresh()
-                    callbacks.applyPreset(preset)
-                    Toast.makeText(activity, "已应用$name", Toast.LENGTH_SHORT).show()
-                }
-            }
-            radios.addView(radio, matchWrap())
-        }
-        content.addView(radios, matchWrap())
-        addSubheading(content, "配置文件")
-        addNavigationRow(content, "备份与恢复", "导入或导出 JSON 配置") { navigate("data") }
-        return groupLooseContent(content)
-    }
-
-    private fun buildDataManagement(): View {
-        val content = column()
-        addSubheading(content, "导出")
-        addActionRow(content, "分享 JSON") {
-            val json = callbacks.exportJson()
-            val share = Intent(Intent.ACTION_SEND).apply {
-                type = "application/json"
-                putExtra(Intent.EXTRA_TEXT, json)
-            }
-            activity.startActivity(Intent.createChooser(share, "分享设置 JSON"))
-        }
-        addSubheading(content, "导入 JSON")
-        val input = TextInputEditText(activity).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            gravity = Gravity.TOP or Gravity.START
-            minLines = 8
-            maxLines = 16
-            setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
-            contentDescription = "参数 JSON"
-        }
-        val inputLayout = TextInputLayout(activity).apply {
-            hint = "输入导出的 JSON"
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            addView(input, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            ))
-        }
-        content.addView(inputLayout, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(220f)))
-        val error = TextView(activity).apply {
-            setTextColor(themeColor(android.R.attr.colorAccent))
-            visibility = View.GONE
-            setPadding(dp(16f), dp(4f), dp(16f), dp(4f))
-        }
-        content.addView(error, matchWrap())
-        addActionRow(content, "导入参数") {
-            if (input.text.isNullOrBlank()) {
-                error.text = "请先输入参数 JSON"
-                error.visibility = View.VISIBLE
-            } else {
-                requestCurrentPageRefresh()
-                callbacks.importJson(input.text.toString()) { result ->
-                    activity.runOnUiThread {
-                        if (result.isSuccess) {
-                            error.visibility = View.GONE
-                            Toast.makeText(activity, "参数已导入", Toast.LENGTH_SHORT).show()
-                        } else {
-                            error.text = "JSON 解析失败，现有参数未变更"
-                            error.visibility = View.VISIBLE
-                        }
-                    }
-                }
-            }
-        }
-        addNote(content, "导入会覆盖当前设置，建议先分享一份备份。应用不会读取或写入系统剪贴板。")
-        addSubheading(content, "重置")
-        addActionRow(content, "恢复全部默认设置", destructive = true) { confirmResetAll() }
-        return groupLooseContent(content)
-    }
-
     private fun buildAbout(): View {
         val content = column()
-        section(content, "灵动玻璃球") {
+        val card = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = roundedSurface()
+            clipToOutline = true
+            setPadding(dp(24f), dp(24f), dp(24f), dp(24f))
             val icon = ImageView(activity).apply {
                 setImageResource(com.cxcboss.glassorb.R.mipmap.ic_launcher)
-                contentDescription = "应用图标"
+                contentDescription = ui("应用图标")
             }
             addView(icon, LinearLayout.LayoutParams(dp(72f), dp(72f)).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                setMargins(0, dp(20f), 0, dp(12f))
+                bottomMargin = dp(16f)
             })
-            addTextRow(this, "版本", BuildConfig.VERSION_NAME)
-            addTextRow(this, "构建编号", BuildConfig.VERSION_CODE.toString())
+            addCenteredAboutText(ui("App 版本"), BuildConfig.VERSION_NAME)
+            addCenteredAboutText(ui("获取 App"), ui("关注抖音或微信公众号“你好小机”"))
+            val source = TextView(activity).apply {
+                text = ui("仓库参考")
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setTextColor(themeColor(android.R.attr.colorAccent))
+                background = selectableBackground()
+                contentDescription = ui("打开参考仓库")
+                isClickable = true
+                isFocusable = true
+                setPadding(dp(16f), dp(12f), dp(16f), dp(6f))
+                setOnClickListener {
+                    activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REFERENCE_REPOSITORY_URL)))
+                }
+            }
+            addView(source, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(20f)
+            })
+            addView(TextView(activity).apply {
+                text = ui("玻璃球视觉与动画参考开源学习项目")
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setTextColor(themeColor(android.R.attr.textColorSecondary))
+                maxLines = 2
+                setLineSpacing(dp(3f).toFloat(), 1f)
+            }, matchWrap())
         }
-        section(content, "隐私与许可") {
-            addTextRow(this, "本地运行", "设置仅保存在本机。")
-            addNavigationRow(this, "开源许可") { navigate("licenses") }
-        }
+        content.addView(card, matchWrap().apply { setMargins(dp(16f), dp(16f), dp(16f), dp(16f)) })
         return content
     }
 
-    private fun buildLicenses(): View {
-        val content = column()
-        section(content, "许可与归属") {
-            val notice = activity.assets.open("NOTICE.txt").bufferedReader().use { it.readText() }
-            addTextRow(this, "第三方声明", notice)
-            val license = activity.assets.open("AndroidLiquidGlass-LICENSE.txt").bufferedReader().use { it.readText() }
-            addTextRow(this, "许可证", license)
-        }
-        return content
+    private fun LinearLayout.addCenteredAboutText(label: String, value: String) {
+        addView(TextView(activity).apply {
+            text = label
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(themeColor(android.R.attr.textColorSecondary))
+        }, matchWrap().apply { topMargin = dp(8f) })
+        addView(TextView(activity).apply {
+            text = value
+            textSize = 17f
+            gravity = Gravity.CENTER
+            setTextColor(themeColor(android.R.attr.textColorPrimary))
+            maxLines = 2
+            setLineSpacing(dp(2f).toFloat(), 1f)
+        }, matchWrap())
     }
 
     private fun addAnchor(group: RadioGroup, label: String, anchor: HorizontalAnchor) {
         val radio = MaterialRadioButton(activity).apply {
-            text = label
+            text = ui(label)
             minHeight = dp(44f)
             gravity = Gravity.CENTER_VERTICAL
             textSize = 16f
@@ -1126,7 +1188,7 @@ internal class NativeSettingsController(
             gravity = Gravity.CENTER_VERTICAL
         }
         val title = TextView(activity).apply {
-            text = label
+            text = ui(label)
             textSize = 16f
             setTextColor(themeColor(android.R.attr.textColorPrimary))
         }
@@ -1134,12 +1196,6 @@ internal class NativeSettingsController(
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
             addView(title, matchWrap())
-            addView(TextView(activity).apply {
-                text = sliderDescription(label)
-                textSize = 12f
-                maxLines = 2
-                setTextColor(themeColor(android.R.attr.textColorSecondary))
-            }, matchWrap())
         }
         labels.addView(titleColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val valueText = TextView(activity).apply {
@@ -1152,7 +1208,7 @@ internal class NativeSettingsController(
         lateinit var slider: Slider
         lateinit var updateLabels: (Float) -> Unit
         val reset = MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonStyle).apply {
-            text = "还原"
+            text = ui("还原")
             minHeight = dp(44f)
             minimumWidth = dp(64f)
             insetTop = 0
@@ -1161,7 +1217,7 @@ internal class NativeSettingsController(
             stateListAnimator = null
             backgroundTintList = android.content.res.ColorStateList.valueOf(Color.TRANSPARENT)
             setTextColor(themeColor(android.R.attr.colorAccent))
-            contentDescription = "$label 还原默认值"
+            contentDescription = "${ui(label)} ${ui("还原默认值")}"
             setOnClickListener {
                 val restored = snapToSliderStep(defaultValue, range, decimals)
                 slider.value = restored
@@ -1174,7 +1230,7 @@ internal class NativeSettingsController(
 
         val initialValue = snapToSliderStep(value, range, decimals)
         slider = Slider(activity).apply {
-            contentDescription = "$label 调节"
+            contentDescription = "${ui(label)} ${ui("调节")}"
             minimumHeight = dp(48f)
             valueFrom = range.start
             valueTo = range.endInclusive
@@ -1205,14 +1261,12 @@ internal class NativeSettingsController(
         })
         slider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
             override fun onStartTrackingTouch(slider: Slider) {
-                sliderTracking = true
                 if (parameterId == ParameterId.TouchAreaScale && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
                     OrbOverlayService.setTouchPreview(activity, true)
                 }
             }
 
             override fun onStopTrackingTouch(slider: Slider) {
-                sliderTracking = false
                 if (parameterId == ParameterId.TouchAreaScale && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
                     OrbOverlayService.setTouchPreview(activity, false)
                 }
@@ -1236,39 +1290,47 @@ internal class NativeSettingsController(
         detail: String?,
         checked: Boolean,
         onChanged: (Boolean) -> Unit,
-    ) {
+    ): View {
         val row = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(64f)
+            minimumHeight = dp(72f)
             setPadding(dp(16f), dp(4f), dp(12f), dp(4f))
             background = selectableBackground()
-            contentDescription = title
+            contentDescription = ui(title)
         }
-        val labels = labelColumn(title, detail)
-        row.addView(labels, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val toggle = MaterialSwitch(activity).apply {
             isChecked = checked
-            contentDescription = title
+            contentDescription = ui(title)
             setOnCheckedChangeListener { _, value -> onChanged(value) }
         }
+        row.addView(
+            labelColumn(title, detail),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
         row.addView(toggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48f)))
         row.setOnClickListener { toggle.performClick() }
         parent.addView(row, matchWrap())
         divider(parent)
+        return row
     }
 
     private fun addNavigationRow(parent: LinearLayout, title: String, detail: String? = null, onClick: () -> Unit) {
         val row = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(56f)
+            minimumHeight = dp(64f)
             setPadding(dp(16f), dp(4f), dp(12f), dp(4f))
             background = selectableBackground()
-            contentDescription = title
-            setOnClickListener { onClick() }
+            contentDescription = ui(title)
+            isClickable = true
+            isFocusable = true
         }
-        row.addView(labelColumn(title, detail), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.setOnClickListener { onClick() }
+        row.addView(
+            labelColumn(title, detail),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+        )
         val arrow = ImageView(activity).apply {
             setImageResource(com.cxcboss.glassorb.R.drawable.ic_arrow_forward)
             contentDescription = null
@@ -1281,14 +1343,14 @@ internal class NativeSettingsController(
 
     private fun addActionRow(parent: LinearLayout, title: String, destructive: Boolean = false, onClick: () -> Unit) {
         val row = TextView(activity).apply {
-            text = title
+            text = ui(title)
             textSize = 16f
             gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(56f)
+            minimumHeight = dp(64f)
             setPadding(dp(16f), 0, dp(16f), 0)
             setTextColor(if (destructive) destructiveColor() else themeColor(android.R.attr.colorAccent))
             background = selectableBackground()
-            contentDescription = title
+            contentDescription = ui(title)
             setOnClickListener { onClick() }
         }
         parent.addView(row, matchWrap())
@@ -1308,23 +1370,30 @@ internal class NativeSettingsController(
 
     private fun addSubheading(parent: LinearLayout, title: String) {
         val heading = TextView(activity).apply {
-            text = title
+            text = ui(title)
             tag = "section-heading"
             textSize = 14f
             setTextColor(themeColor(android.R.attr.textColorSecondary))
-            setPadding(dp(16f), dp(22f), dp(16f), dp(8f))
+            textSize = 16f
+            setPadding(dp(20f), dp(28f), dp(20f), dp(10f))
         }
         parent.addView(heading, matchWrap())
     }
 
     private fun addNote(parent: LinearLayout, text: String) {
-        val note = TextView(activity).apply {
-            this.text = text
-            textSize = 13f
-            setTextColor(themeColor(android.R.attr.textColorSecondary))
+        val note = detailText(text, maxLines = Int.MAX_VALUE).apply {
             setPadding(dp(16f), dp(8f), dp(16f), dp(8f))
+            textSize = 13f
         }
         parent.addView(note, matchWrap())
+    }
+
+    private fun detailText(text: String, maxLines: Int = 2): TextView = TextView(activity).apply {
+        this.text = ui(text)
+        textSize = 12f
+        this.maxLines = maxLines
+        setLineSpacing(dp(2f).toFloat(), 1f)
+        setTextColor(themeColor(android.R.attr.textColorSecondary))
     }
 
     private fun section(parent: LinearLayout, title: String, content: LinearLayout.() -> Unit) {
@@ -1336,34 +1405,29 @@ internal class NativeSettingsController(
             elevation = 0f
             content()
         }
-        parent.addView(group, matchWrap().apply { setMargins(dp(12f), 0, dp(12f), dp(12f)) })
+        parent.addView(group, matchWrap().apply { setMargins(dp(16f), 0, dp(16f), dp(16f)) })
     }
 
-    private fun labelColumn(title: String, detail: String?): LinearLayout = LinearLayout(activity).apply {
+    private fun labelColumn(
+        title: String,
+        detail: String?,
+    ): LinearLayout = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_VERTICAL
         val titleView = TextView(activity).apply {
             id = android.R.id.text1
-            text = title
+            text = ui(title)
             textSize = 16f
             setTextColor(themeColor(android.R.attr.textColorPrimary))
         }
         addView(titleView, matchWrap())
-        if (!detail.isNullOrBlank()) {
-            val detailView = TextView(activity).apply {
-                id = android.R.id.text2
-                text = detail
-                textSize = 13f
-                setTextColor(themeColor(android.R.attr.textColorSecondary))
-            }
-            addView(detailView, matchWrap())
-        }
+        if (!detail.isNullOrBlank()) addView(detailText(detail), matchWrap())
     }
 
     private fun column(): LinearLayout = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
         setBackgroundColor(themeColor(android.R.attr.colorBackground))
-        setPadding(0, dp(8f), 0, 0)
+        setPadding(0, dp(12f), 0, 0)
         isFocusable = true
     }
 
@@ -1390,77 +1454,7 @@ internal class NativeSettingsController(
 
     private fun roundedSurface(): android.graphics.drawable.Drawable = android.graphics.drawable.GradientDrawable().apply {
         setColor(themeColor(com.google.android.material.R.attr.colorSurface))
-        cornerRadius = dp(16f).toFloat()
-    }
-
-    private fun roundedSurfaceVariant(): android.graphics.drawable.Drawable = android.graphics.drawable.GradientDrawable().apply {
-        setColor(themeColor(com.google.android.material.R.attr.colorSurfaceVariant))
-        cornerRadius = dp(18f).toFloat()
-    }
-
-    private fun sliderDescription(label: String): String = when (label) {
-        "顶部偏移" -> "控制灵动岛距离真实屏幕顶部的物理距离。"
-        "水平微调" -> "在左、中、右锚点基础上做细微横向移动。"
-        "胶囊宽度" -> "设置黑色胶囊的宽度，0 会隐藏图形。"
-        "胶囊高度" -> "设置黑色胶囊的高度，0 会隐藏图形。"
-        "球体直径" -> "同时调整玻璃球宽高，快速恢复圆形。"
-        "玻璃球宽度" -> "单独调整玻璃球横向尺寸。"
-        "玻璃球高度" -> "单独调整玻璃球纵向尺寸。"
-        "外部效果余量" -> "给发光、阴影和回弹预留额外画布空间。"
-        "效果画布比例" -> "放大效果画布，避免边缘发光被裁切。"
-        "触摸区域倍率" -> "按胶囊尺寸放大触控范围，关闭扩大后不生效。"
-        "内部深度" -> "控制球体内部色彩和空间感的深度。"
-        "曲率" -> "控制玻璃球边缘的弯曲与折射程度。"
-        "高光亮度" -> "调整玻璃球整体高光的明暗。"
-        "高光宽度" -> "调整高光带的扩散宽度。"
-        "高光收束" -> "调整高光向边缘收束的程度。"
-        "内部颜色" -> "旋转球体内部波形与圆点的整体色相。"
-        "上半部高光颜色" -> "调整球体上半部跳动高光的色相。"
-        "上半部高光强度" -> "控制非黑色上半部高光的可见程度。"
-        "阴影" -> "调整球体边缘暗部的深浅。"
-        "焦散强度" -> "调整随内部颜色自动变化的焦散亮度。"
-        "阴影偏移" -> "移动暗部的光影方向。"
-        "焦散偏移" -> "移动焦散纹理的光影方向。"
-        "光影柔度" -> "让阴影和焦散边缘更硬或更柔和。"
-        "暗部强度", "强度" -> "调节屏幕压暗或球体暗部的整体强度。"
-        "暗部渐隐跨度", "渐隐跨度" -> "控制黑色从 28% 向 0% 透明度过渡的范围。"
-        "暗部衰减" -> "控制暗部从中心向外衰减的速度。"
-        "振幅" -> "调整波形上下起伏的幅度。"
-        "尺度" -> "调整波形在球体内的整体尺度。"
-        "色散" -> "调整边缘红蓝色彩分离的程度。"
-        "线宽" -> "调整波形光带的线条粗细。"
-        "亮度" -> "调整波形光带的整体亮度。"
-        "填光" -> "调整波形内部的填充亮度。"
-        "填光厚度" -> "调整波形填充区域的厚度。"
-        "柔化" -> "调整波形边缘的柔和程度。"
-        "白色辉光" -> "调整光带外沿的白色辉光。"
-        "色相偏移" -> "整体偏移波形光带的色相。"
-        "环半径" -> "调整思考圆点环绕中心的半径。"
-        "点半径" -> "调整每个思考圆点的大小。"
-        "辉光" -> "调整思考圆点周围的光晕。"
-        "转速" -> "调整思考圆点的环绕速度与方向。"
-        "收起跟手距离" -> "调整上滑多少距离会触发收起。"
-        "拖拽弹性范围" -> "调整横向拖动的最大回弹范围。"
-        "拖拽响应系数" -> "调整拖动跟手的灵敏度。"
-        "形变位移上限" -> "限制胶囊在拖动时的位移形变。"
-        "形变幅度" -> "调整胶囊被拉伸或压缩的幅度。"
-        "形变回弹反应" -> "控制形变恢复速度，数值越大越慢。"
-        "形变回弹阻尼" -> "控制形变回弹时的余韵。"
-        "展开响应" -> "控制玻璃球展开的弹簧响应时间。"
-        "展开阻尼" -> "控制展开后的回弹与稳定速度。"
-        "收起响应" -> "控制上滑收起的弹簧响应时间。"
-        "收起阻尼" -> "控制收起后的多层回弹余韵。"
-        "收起回弹幅度" -> "控制胶囊飞出后超短距离回弹的幅度。"
-        "波形渐入延迟" -> "控制展开后波形内容出现的延迟。"
-        "呼吸幅度" -> "调整静态胶囊与展开状态的轻微呼吸感。"
-        "呼吸速度" -> "调整呼吸动效的节奏。"
-        "点击放大" -> "调整按下胶囊时的轻微放大反馈。"
-        "思考停留" -> "控制分析状态的停留时间。"
-        "等待时间" -> "无操作后自动收起前的等待时间。"
-        "胶囊帧率" -> "仅影响仍有动画时的胶囊渲染频率。"
-        "展开帧率" -> "控制玻璃球展开时的渲染频率。"
-        "渲染比例" -> "平衡玻璃球清晰度与 GPU 压力。"
-        else -> "拖动调整此项，右侧数值会即时更新。"
+        cornerRadius = dp(24f).toFloat()
     }
 
     private fun findFirstScroll(view: View): ScrollView? {
@@ -1477,20 +1471,14 @@ internal class NativeSettingsController(
         Screen.Home -> "home"
         Screen.Overlay -> "overlay"
         is Screen.Group -> "group:${screen.group.name}"
-        Screen.Presets -> "presets"
-        Screen.Data -> "data"
         Screen.About -> "about"
-        Screen.Licenses -> "licenses"
     }
 
     private fun decodeScreen(value: String?): Screen? = when {
         value.isNullOrBlank() -> null
         value == "home" -> Screen.Home
         value == "overlay" -> Screen.Overlay
-        value == "presets" -> Screen.Presets
-        value == "data" -> Screen.Data
         value == "about" -> Screen.About
-        value == "licenses" -> Screen.Licenses
         value.startsWith("group:") -> value.removePrefix("group:")
             .let { name -> ConfigGroup.entries.firstOrNull { it.name == name }?.let(Screen::Group) }
         else -> null
@@ -1503,37 +1491,21 @@ internal class NativeSettingsController(
 
     private fun confirmResetGroup(group: ConfigGroup) {
         MaterialAlertDialogBuilder(activity)
-            .setTitle("恢复本组默认参数？")
-            .setMessage("仅恢复“${group.title()}”中的参数。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("恢复") { _, _ ->
+            .setTitle(ui("恢复本组默认参数？"))
+            .setMessage(if (isChineseLanguage()) "仅恢复“${group.title()}”中的参数。" else "Restore only the ${ui(group.title())} settings.")
+            .setNegativeButton(ui("取消"), null)
+            .setPositiveButton(ui("恢复")) { _, _ ->
                 requestCurrentPageRefresh()
                 callbacks.resetGroup(group)
-                Toast.makeText(activity, "已恢复本组默认值", Toast.LENGTH_SHORT).show()
-            }
-            .show()
-    }
-
-    private fun confirmResetAll() {
-        MaterialAlertDialogBuilder(activity)
-            .setTitle("恢复全部默认参数？")
-            .setMessage("七组配置都会恢复为默认效果，当前悬浮球状态不会改变。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("恢复") { _, _ ->
-                requestCurrentPageRefresh()
-                callbacks.resetAll()
-                Toast.makeText(activity, "已恢复全部默认参数", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, ui("已恢复本组默认值"), Toast.LENGTH_SHORT).show()
             }
             .show()
     }
 
     private fun screenTitle(screen: Screen): String = when (screen) {
         Screen.Home -> "常用设置"
-        Screen.Licenses -> "开源许可"
-        Screen.Overlay -> "悬浮球"
+        Screen.Overlay -> "运行权限"
         is Screen.Group -> screen.group.title()
-        Screen.Presets -> "预设"
-        Screen.Data -> "导入与导出"
         Screen.About -> "关于"
     }
 
@@ -1572,11 +1544,17 @@ internal class NativeSettingsController(
     private fun isDarkTheme(): Boolean = activity.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
         android.content.res.Configuration.UI_MODE_NIGHT_YES
 
+    private fun isChineseLanguage(): Boolean =
+        activity.resources.configuration.locales[0].language.equals("zh", ignoreCase = true)
+
+    /** Uses the system locale; Chinese stays native while other locales receive English UI copy. */
+    private fun ui(source: String): String = if (isChineseLanguage()) source else ENGLISH_TEXT[source] ?: source
+
     private fun actionBarHeight(): Int {
         val value = TypedValue()
         activity.theme.resolveAttribute(android.R.attr.actionBarSize, value, true)
         return TypedValue.complexToDimensionPixelSize(value.data, activity.resources.displayMetrics)
-            .coerceAtLeast(dp(56f))
+            .coerceAtLeast(dp(64f))
     }
 
     private fun dp(value: Float): Int = (value * density + 0.5f).roundToInt()
@@ -1584,9 +1562,61 @@ internal class NativeSettingsController(
     private fun matchWrap() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
     private companion object {
+        const val REFERENCE_REPOSITORY_URL = "https://github.com/cxcboss/glass-voice-orb-study"
+        const val PAGE_NAVIGATION_DURATION_MS = 220L
         const val SAVED_STATE_KEY = "native_settings_state"
         const val KEY_HOME_TAB = "home_tab"
         const val KEY_SCREEN = "screen"
         const val KEY_SCROLL_Y = "scroll_y"
+        val ENGLISH_TEXT = mapOf(
+            "常用" to "Common", "详细" to "Details", "常用设置" to "Common settings", "详细设置" to "All settings",
+            "返回" to "Back", "设置页面切换" to "Settings page switch", "当前页面" to "Current page", "切换页面" to "Switch page", "全部设置" to "All settings", "其它" to "Other",
+            "灵动岛" to "Dynamic Island", "显示灵动岛" to "Show Dynamic Island", "向下展开" to "Expand downward",
+            "尺寸与位置" to "Size & position", "灵动岛大小" to "Dynamic Island size", "宽度" to "Width", "高度" to "Height",
+            "位置" to "Position", "顶部偏移" to "Top offset", "水平" to "Horizontal", "玻璃球大小" to "Glass orb size",
+            "背景效果" to "Background effects", "位置与触控" to "Position & touch", "位置、尺寸和触控" to "Position, size and touch",
+            "颜色与光影" to "Color & lighting", "颜色、高光和阴影" to "Color, highlights and shadows",
+            "背景与暗部" to "Background & shading", "三种背景效果与暗部" to "Background effects and shading",
+            "波形与光带" to "Waves & light bands", "波形、色散和亮度" to "Waves, dispersion and brightness",
+            "圆点与粒子" to "Dots & particles", "圆点、光晕和旋转" to "Dots, glow and rotation",
+            "手势与动效" to "Gestures & motion", "展开、收起与拖动" to "Expand, collapse and drag",
+            "性能与清晰度" to "Performance & clarity", "渲染比例与刷新率" to "Render scale and refresh rate",
+            "运行与权限" to "Run & permissions", "运行权限" to "Run & permissions", "权限与系统兼容" to "Permissions & compatibility",
+            "关于" to "About", "版本与来源" to "Version & sources", "状态" to "Status", "运行状态" to "Runtime status",
+            "悬浮窗权限" to "Overlay permission", "已允许" to "Allowed", "未允许" to "Not allowed", "错误" to "Error",
+            "状态栏触控" to "Status bar touch", "无障碍触控服务" to "Accessibility touch service",
+            "已开启 · 用于状态栏触控" to "On · for status bar touch", "未开启 · 点击授权" to "Off · tap to allow",
+            "仅用于状态栏触控和识别已知助手窗口；不读取文字、截图、录音或执行手势。" to "Used only for status-bar touch and known assistant windows. It does not read text, capture screens, record audio, or perform gestures.",
+            "首页开关可显示或隐藏灵动岛；锁屏、安全页面和系统状态栏不保证显示。" to "The Home switch shows or hides Dynamic Island. It may not appear on lock screens, security pages, or system UI.",
+            "重置本组" to "Reset this group", "恢复本组默认值" to "Restore group defaults", "恢复本组默认参数？" to "Restore group defaults?",
+            "取消" to "Cancel", "恢复" to "Restore", "已恢复本组默认值" to "Group defaults restored",
+            "左侧" to "Left", "居中" to "Center", "右侧" to "Right", "水平微调" to "Horizontal offset",
+            "灵动岛尺寸" to "Dynamic Island size", "玻璃球" to "Glass orb", "全屏时隐藏灵动岛" to "Hide in fullscreen",
+            "横屏隐藏" to "Hide in landscape", "全屏时隐藏。" to "Hide in fullscreen.", "横屏时隐藏。" to "Hide in landscape.", "球体直径" to "Orb diameter", "玻璃球宽度" to "Orb width", "玻璃球高度" to "Orb height",
+            "外部效果余量" to "Effect margin", "效果画布比例" to "Effect canvas scale", "灵动岛触控" to "Dynamic Island touch",
+            "扩大灵动岛触摸区域" to "Enlarge touch area", "触摸区域倍率" to "Touch-area scale",
+            "玻璃形态与光影" to "Glass form & lighting", "内部深度" to "Inner depth", "曲率" to "Curvature", "高光" to "Highlights",
+            "高光亮度" to "Highlight intensity", "高光宽度" to "Highlight width", "高光收束" to "Highlight focus", "动态颜色" to "Dynamic color",
+            "内部颜色" to "Inner color", "上半部高光颜色" to "Upper highlight color", "上半部高光强度" to "Upper highlight intensity",
+            "阴影与焦散" to "Shadows & caustics", "阴影" to "Shadow", "焦散强度" to "Caustic intensity", "阴影偏移" to "Shadow offset",
+            "焦散偏移" to "Caustic offset", "光影柔度" to "Light softness", "球体暗部" to "Orb shading", "强度" to "Intensity",
+            "渐隐跨度" to "Fade range", "暗部衰减" to "Shading falloff", "下层模糊" to "Lower-layer blur", "下层模糊度" to "Lower blur amount",
+            "下层变暗" to "Lower-layer dim", "变暗程度" to "Dim amount", "玻璃球模糊" to "Glass orb blur", "玻璃球模糊度" to "Glass blur amount",
+            "波形与色彩" to "Waves & color", "振幅" to "Amplitude", "尺度" to "Scale", "色散" to "Dispersion", "光带" to "Light band",
+            "线宽" to "Line width", "亮度" to "Brightness", "填光" to "Fill light", "填光厚度" to "Fill thickness", "柔化" to "Softness",
+            "白色辉光" to "White glow", "色相偏移" to "Hue shift", "粒子外观与运动" to "Particle look & motion",
+            "环半径" to "Ring radius", "点半径" to "Dot radius", "辉光" to "Glow", "转速" to "Rotation speed",
+            "上滑与拖动" to "Swipe up & drag", "收起跟手距离" to "Collapse distance", "拖拽弹性范围" to "Drag range", "拖拽响应系数" to "Drag response",
+            "形变与回弹" to "Deformation & rebound", "形变位移上限" to "Deformation limit", "形变幅度" to "Deformation amount",
+            "形变回弹反应" to "Rebound response", "形变回弹阻尼" to "Rebound damping", "展开与收起" to "Expand & collapse",
+            "展开响应" to "Expand response", "展开阻尼" to "Expand damping", "收起响应" to "Collapse response", "收起阻尼" to "Collapse damping",
+            "收起回弹幅度" to "Collapse rebound", "波形渐入延迟" to "Wave fade-in delay", "呼吸与点击" to "Breathing & press",
+            "呼吸幅度" to "Breathing amount", "呼吸速度" to "Breathing speed", "点击放大" to "Press scale", "思考停留" to "Thinking duration",
+            "自动收起" to "Auto-collapse", "等待时间" to "Delay", "帧率与清晰度" to "Frame rate & clarity", "展开、收起与玻璃球按 120 fps 请求刷新。" to "Expand, collapse, and Glass Orb request 120 fps refresh.", "渲染比例" to "Render scale",
+            "未运行" to "Not running", "正在显示" to "Visible", "已隐藏" to "Hidden", "需要权限" to "Permission required", "运行异常" to "Runtime error",
+            "还原" to "Reset", "还原默认值" to "reset to default", "调节" to "adjust", "参数" to "Settings",
+            "应用图标" to "App icon", "App 版本" to "App version", "获取 App" to "Get the app", "关注抖音或微信公众号“你好小机”" to "Follow Douyin or the WeChat Official Account “Hello Xiaojī”.",
+            "仓库参考" to "Repository reference", "打开参考仓库" to "Open reference repository", "玻璃球视觉与动画参考开源学习项目" to "Glass-orb visuals and motion reference an open-source study project.",
+        )
     }
 }

@@ -79,11 +79,7 @@ class MainActivity : ComponentActivity() {
                 hideOverlay = ::hideOverlay,
                 stopOverlay = ::stopOverlay,
                 updateConfig = viewModel::update,
-                applyPreset = viewModel::applyPreset,
                 resetGroup = viewModel::reset,
-                resetAll = viewModel::resetAll,
-                exportJson = viewModel::exportJson,
-                importJson = viewModel::importJson,
                 setAutoStartEnabled = { enabled -> AutoStartPreferences.setEnabled(this, enabled) },
             ),
         )

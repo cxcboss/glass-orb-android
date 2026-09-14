@@ -91,9 +91,9 @@ internal class GlOrbPipeline(
         GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glBindVertexArray(vertexArray[0])
 
-        // The two off-screen passes are the expensive animated part. During a
-        // collapse keep their last image and render only the lightweight shape
-        // pass. A resize invalidates scenePopulated and forces one fresh pass.
+        // Keep both off-screen passes live during expand, drag and collapse so
+        // the glass scene follows the 120 Hz geometry continuously. A resize
+        // invalidates scenePopulated and forces the next pass to recreate it.
         val renderAmbientScene = RenderWorkPolicy.shouldRenderAmbientScene(
             state = snapshot.state,
             effectsFrozen = snapshot.collapseEffectsFrozen,

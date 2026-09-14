@@ -166,7 +166,7 @@ class OrbOverlayService : Service() {
             Intent(this, OrbOverlayService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val statusText = if (overlayVisible) "点击胶囊展开，上滑小球收起" else "悬浮层已隐藏"
+        val statusText = if (overlayVisible) "点击灵动岛展开，上滑小球收起" else "悬浮层已隐藏"
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_orb)
             .setContentTitle(getString(R.string.notification_title))

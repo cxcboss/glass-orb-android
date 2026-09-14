@@ -3,6 +3,6 @@
     <color name="launcher_background">#090B12</color>
     <color name="brand_blue">#0A84FF</color>
     <color name="brand_blue_dark">#64B5FF</color>
-    <color name="app_surface_light">#F7F8FA</color>
+    <color name="app_surface_light">#F2F3FC</color>
     <color name="app_surface_dark">#101114</color>
 </resources>

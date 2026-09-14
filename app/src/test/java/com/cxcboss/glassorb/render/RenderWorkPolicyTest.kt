@@ -21,6 +21,12 @@ class RenderWorkPolicyTest {
     }
 
     @Test
+    fun `expansion keeps the scene live at full rate`() {
+        assertTrue(RenderWorkPolicy.shouldRenderAmbientScene(OverlayState.Expanding, false, false))
+        assertTrue(RenderWorkPolicy.shouldRenderAmbientScene(OverlayState.Expanding, false, true))
+    }
+
+    @Test
     fun `unpaused transition is applied only when state changes`() {
         assertFalse(RenderPauseTransition.shouldApply(false, false))
         assertTrue(RenderPauseTransition.shouldApply(true, false))

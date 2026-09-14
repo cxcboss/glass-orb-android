@@ -15,9 +15,9 @@ class RotationCoordinateSpaceTest {
         val point = FloatPoint(120f, 340f)
 
         assertEquals(FloatPoint(120f, 340f), RotationCoordinateSpace.mapPortraitPoint(point, portraitDisplay, 0))
-        assertEquals(FloatPoint(1940f, 120f), RotationCoordinateSpace.mapPortraitPoint(point, landscapeDisplay, 1))
+        assertEquals(FloatPoint(340f, 960f), RotationCoordinateSpace.mapPortraitPoint(point, landscapeDisplay, 1))
         assertEquals(FloatPoint(960f, 1940f), RotationCoordinateSpace.mapPortraitPoint(point, portraitDisplay, 2))
-        assertEquals(FloatPoint(340f, 960f), RotationCoordinateSpace.mapPortraitPoint(point, landscapeDisplay, 3))
+        assertEquals(FloatPoint(1940f, 120f), RotationCoordinateSpace.mapPortraitPoint(point, landscapeDisplay, 3))
     }
 
     @Test
@@ -36,8 +36,8 @@ class RotationCoordinateSpaceTest {
         val left = RotationCoordinateSpace.mapPortraitPoint(FloatPoint(540f, 80f), landscapeDisplay, 1)
         val right = RotationCoordinateSpace.mapPortraitPoint(FloatPoint(540f, 80f), landscapeDisplay, 3)
 
-        assertTrue(left.x > landscapeDisplay.width * 0.8f)
-        assertTrue(right.x < landscapeDisplay.width * 0.2f)
+        assertTrue(left.x < landscapeDisplay.width * 0.2f)
+        assertTrue(right.x > landscapeDisplay.width * 0.8f)
         assertEquals(540f, left.y, 0f)
         assertEquals(540f, right.y, 0f)
     }
@@ -57,7 +57,7 @@ class RotationCoordinateSpaceTest {
             GeometryConfig(horizontalAnchor = HorizontalAnchor.Right, capsuleHeightDp = 48f), display, 1f,
         )
 
-        assertTrue(left.top < right.top)
+        assertTrue(left.top > right.top)
         assertEquals(left.left, right.left)
     }
 
@@ -89,10 +89,10 @@ class RotationCoordinateSpaceTest {
 
         val portraitSafe = RotationCoordinateSpace.portraitSafeBounds(display)
 
-        assertEquals(22, portraitSafe.left)
-        assertEquals(1034, portraitSafe.right)
+        assertEquals(46, portraitSafe.left)
+        assertEquals(1058, portraitSafe.right)
         assertEquals(0, portraitSafe.top)
-        assertEquals(2266, portraitSafe.bottom)
+        assertEquals(2246, portraitSafe.bottom)
     }
 
     @Test
@@ -100,9 +100,9 @@ class RotationCoordinateSpaceTest {
         val insets = IntRect(left = 14, top = 22, right = 34, bottom = 46)
         val expected = mapOf(
             0 to IntRect(14, 0, 1046, 2234),
-            1 to IntRect(22, 0, 1034, 2266),
+            1 to IntRect(46, 0, 1058, 2246),
             2 to IntRect(34, 0, 1066, 2258),
-            3 to IntRect(46, 0, 1058, 2246),
+            3 to IntRect(22, 0, 1034, 2266),
         )
 
         for ((rotation, safe) in expected) {
@@ -136,7 +136,7 @@ class RotationCoordinateSpaceTest {
     }
 
     @Test
-    fun `mapped landscape center moves to physical side without rotating dimensions`() {
+    fun `left landscape keeps island attached to hardware top with vertical logical bounds`() {
         val geometry = GeometryConfig(
             capsuleWidthDp = 118f,
             capsuleHeightDp = 48f,
@@ -151,9 +151,9 @@ class RotationCoordinateSpaceTest {
 
         val collapsed = OverlayLayout.collapsedBounds(geometry, display, 1f)
 
-        assertEquals(118, collapsed.width)
-        assertEquals(48, collapsed.height)
-        assertTrue(collapsed.left > landscapeDisplay.width / 2)
+        assertEquals(48, collapsed.width)
+        assertEquals(118, collapsed.height)
+        assertTrue(collapsed.left < landscapeDisplay.width / 2)
         assertEquals(540, collapsed.top + collapsed.height / 2)
     }
 
@@ -175,9 +175,9 @@ class RotationCoordinateSpaceTest {
         val capsule = OverlayLayout.collapsedBounds(geometry, display, 1f)
         val orb = OverlayLayout.orbTouchBounds(geometry, display, 1f)
 
-        assertEquals(160, orb.width)
-        assertEquals(96, orb.height)
-        assertEquals(68, orb.top - capsule.top)
+        assertEquals(96, orb.width)
+        assertEquals(160, orb.height)
+        assertEquals(68, orb.left - capsule.left)
     }
 
     @Test
@@ -225,15 +225,15 @@ class RotationCoordinateSpaceTest {
         val orbTouch = OverlayLayout.orbTouchBounds(geometry, display, 1f)
         val expanded = OverlayLayout.expandedFrame(geometry, display, 1f)
 
-        assertTrue(capsule.left > display.safeBounds.width / 2)
+        assertTrue(capsule.left < display.safeBounds.width / 2)
         assertTrue(capsuleTouch.left <= capsule.left)
         assertTrue(capsuleTouch.right >= capsule.right)
-        assertEquals(display.safeBounds.right, capsuleTouch.right)
+        assertEquals(display.physicalBounds.left, capsuleTouch.left)
         assertTrue(capsuleTouch.width >= capsule.width)
-        assertEquals(160, orbTouch.width)
-        assertEquals(96, orbTouch.height)
-        assertTrue(expanded.bounds.left >= display.safeBounds.left)
-        assertTrue(expanded.bounds.right <= display.safeBounds.right)
+        assertEquals(96, orbTouch.width)
+        assertEquals(160, orbTouch.height)
+        assertTrue(expanded.bounds.left >= display.physicalBounds.left)
+        assertTrue(expanded.bounds.right <= display.physicalBounds.right)
         assertTrue(expanded.visualBottomPx <= expanded.bounds.bottom)
         assertEquals(expanded.visualBottomPx,
             OverlayLayout.expandedVisualBottomPx(geometry, display, 1f))
@@ -280,5 +280,28 @@ class RotationCoordinateSpaceTest {
             OverlayLayout.expandedFrame(GeometryConfig(), snapshot.display, 1f))
         assertEquals(snapshot.expandedFrame.visualBottomPx,
             OverlayLayout.expandedVisualBottomPx(GeometryConfig(), snapshot.display, 1f))
+    }
+
+    @Test
+    fun `complete overlay stays fixed to hardware across all four rotations including inverted portrait`() {
+        val geometry = GeometryConfig(verticalOffsetDp = 12f, capsuleHeightDp = 48f,
+            orbWidthDp = 160f, orbHeightDp = 96f, expandBelowCapsule = true)
+        val portrait = RotationDisplayGeometry(portraitDisplay, portraitDisplay, IntRect(0, 0, 0, 0), 0)
+        val expectedCapsule = OverlayLayout.collapsedBounds(geometry, portrait, 1f)
+        val expectedOrb = OverlayLayout.orbTouchBounds(geometry, portrait, 1f)
+        for (rotation in 0..3) {
+            val bounds = if (rotation % 2 == 1) landscapeDisplay else portraitDisplay
+            val display = RotationDisplayGeometry(bounds, bounds, IntRect(34, 72, 60, 24), rotation)
+            assertEquals(RotationCoordinateSpace.mapPortraitRect(expectedCapsule, bounds, rotation),
+                OverlayLayout.collapsedBounds(geometry, display, 1f))
+            assertEquals(RotationCoordinateSpace.mapPortraitRect(expectedOrb, bounds, rotation),
+                OverlayLayout.orbTouchBounds(geometry, display, 1f))
+        }
+        assertEquals(-90f, RotationCoordinateSpace.contentRotationDegrees(1), 0f)
+        for ((x, rotation) in listOf(-100f to 1, 100f to 3)) {
+            val vector = RotationCoordinateSpace.currentVectorToPortrait(x, 0f, rotation)
+            assertEquals(0f, vector.x, 0f)
+            assertEquals(-100f, vector.y, 0f)
+        }
     }
 }

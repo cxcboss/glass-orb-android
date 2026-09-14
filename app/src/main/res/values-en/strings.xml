@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Glass Orb</string>
+    <string name="notification_channel_name">Glass Orb overlay</string>
+    <string name="notification_channel_description">Keeps Dynamic Island visible above other apps</string>
+    <string name="notification_title">Glass Orb is running</string>
+    <string name="accessibility_service_label">Glass Orb touch and assistant integration</string>
+    <string name="accessibility_service_description">Used for status-bar touch and known system-assistant windows. It reads only app package metadata for interactive windows; it does not read window text, capture screens, record audio, perform gestures, or monitor keys.</string>
+</resources>

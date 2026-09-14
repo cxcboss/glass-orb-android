@@ -12,13 +12,15 @@ class BackgroundBlurPolicyTest {
 
     @Test
     fun `blur is enabled only when user capability api visibility and circular mask allow it`() {
-        assertTrue(BackgroundBlurPolicy.isEligible(true, 31, true, true, square, BlurShape.Circular))
-        assertFalse(BackgroundBlurPolicy.isEligible(false, 31, true, true, square, BlurShape.Circular))
-        assertFalse(BackgroundBlurPolicy.isEligible(true, 30, true, true, square, BlurShape.Circular))
-        assertFalse(BackgroundBlurPolicy.isEligible(true, 31, false, true, square, BlurShape.Circular))
-        assertFalse(BackgroundBlurPolicy.isEligible(true, 31, true, false, square, BlurShape.Circular))
-        assertFalse(BackgroundBlurPolicy.isEligible(true, 31, true, true, square, BlurShape.Ellipse))
-        assertFalse(BackgroundBlurPolicy.isEligible(true, 31, true, true, null, BlurShape.Circular))
+        assertTrue(BackgroundBlurPolicy.isEligible(true, 31, true, true, square, square, 33, BlurShape.Circular))
+        assertFalse(BackgroundBlurPolicy.isEligible(false, 31, true, true, square, square, 33, BlurShape.Circular))
+        assertFalse(BackgroundBlurPolicy.isEligible(true, 30, true, true, square, square, 33, BlurShape.Circular))
+        assertFalse(BackgroundBlurPolicy.isEligible(true, 31, false, true, square, square, 33, BlurShape.Circular))
+        assertFalse(BackgroundBlurPolicy.isEligible(true, 31, true, false, square, square, 33, BlurShape.Circular))
+        assertTrue(BackgroundBlurPolicy.isEligible(true, 31, true, true, square, square, 33, BlurShape.Ellipse))
+        assertFalse(BackgroundBlurPolicy.isEligible(true, 31, true, true, square, square, 33, BlurShape.Uncertain))
+        assertFalse(BackgroundBlurPolicy.isEligible(true, 31, true, true, null, square, 33, BlurShape.Circular))
+        assertFalse(BackgroundBlurPolicy.isEligible(true, 31, true, true, square, square, 0, BlurShape.Circular))
     }
 
     @Test
@@ -37,6 +39,7 @@ class BackgroundBlurPolicyTest {
         assertEquals(
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             flags,
         )
@@ -49,15 +52,24 @@ class BackgroundBlurPolicyTest {
     @Test
     fun `controller gates initial attach and destroys optional window when request becomes ineligible`() {
         val host = RecordingBlurWindow()
-        val controller = BackgroundBlurController(host, blurRadiusPx = 32)
-        val request = BackgroundBlurRequest(true, 31, true, true, square, BlurShape.Circular)
+        val controller = BackgroundBlurController(host)
+        val request = BackgroundBlurRequest(
+            userEnabled = true,
+            apiLevel = 31,
+            crossWindowBlurEnabled = true,
+            visible = true,
+            windowBounds = square,
+            apertureBounds = square,
+            blurRadiusPx = 32,
+            shape = BlurShape.Circular,
+        )
 
         assertFalse(controller.show(request.copy(visible = false)))
         assertTrue(host.events.isEmpty())
         controller.update(request)
         controller.update(request)
-        controller.update(request.copy(shape = BlurShape.Ellipse))
-        controller.update(request.copy(shape = BlurShape.Ellipse))
+        controller.update(request.copy(shape = BlurShape.Uncertain))
+        controller.update(request.copy(shape = BlurShape.Uncertain))
         controller.update(request.copy(visible = false))
         controller.update(request)
         controller.hide()
@@ -67,25 +79,48 @@ class BackgroundBlurPolicyTest {
 
         assertEquals(
             listOf(
-                "show:32:${square.width}x${square.height}",
-                "hide", "destroy",
-                "show:32:${square.width}x${square.height}",
+                "show:32:${square.width}x${square.height}:${square.width}x${square.height}",
+                "hide",
+                "show:32:${square.width}x${square.height}:${square.width}x${square.height}",
                 "hide", "destroy",
             ),
             host.events,
         )
     }
 
+    @Test
+    fun `ellipse aperture and blur radius update without recreating the window`() {
+        val host = RecordingBlurWindow()
+        val controller = BackgroundBlurController(host)
+        val request = BackgroundBlurRequest(
+            userEnabled = true,
+            apiLevel = 31,
+            crossWindowBlurEnabled = true,
+            visible = true,
+            windowBounds = IntRect(80, 180, 480, 580),
+            apertureBounds = square,
+            blurRadiusPx = 32,
+            shape = BlurShape.Ellipse,
+        )
+        controller.update(request)
+        controller.update(request.copy(apertureBounds = IntRect(132, 220, 428, 520), blurRadiusPx = 96))
+        assertEquals(1, host.events.count { it.startsWith("show:") })
+        assertTrue(host.events.any { it == "update:96:296x300" })
+        controller.destroy()
+        assertEquals(1, host.events.count { it == "destroy" })
+    }
+
+    @Test
     private class RecordingBlurWindow : BackgroundBlurWindow {
         val events = mutableListOf<String>()
 
-        override fun show(bounds: IntRect, blurRadiusPx: Int): Boolean {
-            events += "show:$blurRadiusPx:${bounds.width}x${bounds.height}"
+        override fun show(windowBounds: IntRect, apertureBounds: IntRect, blurRadiusPx: Int): Boolean {
+            events += "show:$blurRadiusPx:${windowBounds.width}x${windowBounds.height}:${apertureBounds.width}x${apertureBounds.height}"
             return true
         }
 
-        override fun update(bounds: IntRect, blurRadiusPx: Int): Boolean {
-            events += "update:$blurRadiusPx"
+        override fun update(windowBounds: IntRect, apertureBounds: IntRect, blurRadiusPx: Int): Boolean {
+            events += "update:$blurRadiusPx:${apertureBounds.width}x${apertureBounds.height}"
             return true
         }
 
