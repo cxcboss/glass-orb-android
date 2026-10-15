@@ -17,8 +17,8 @@
 
 ## 安装与权限
 
-安装 dist/灵动玻璃球-2.0.11.apk；Android 10 / API 29 及以上、GLES 3.0。
-包名 com.cxcboss.glassorb 保持不变，versionName=2.0.11，versionCode=19。
+从 [GitHub Releases](https://github.com/cxcboss/glass-orb-android/releases/latest) 下载 **glass-orb-android-2.0.11.apk**；Android 10 / API 29 及以上、GLES 3.0。
+包名 `com.cxcboss.glassorb` 保持不变，versionName=2.0.11，versionCode=19。
 
 在“运行与权限”中允许悬浮权限；如果需要状态栏区域触控，再主动开启“灵动玻璃球状态栏触控”无障碍服务。服务仅承载可信触控窗口，不读取屏幕内容、获取输入文字或模拟手势。国产 ROM 如有电池优化或自启动管理，请将本应用设为允许。旧配置保留，新选项缺失时使用默认值。
 
