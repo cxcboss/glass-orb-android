@@ -62,32 +62,31 @@ unzip -t app-debug.apk
 
 ## 更新交付目录
 
-`dist` 只保留一个 APK，统一命名为：
+APK 不提交到仓库，作为 GitHub Release 附件发布，统一命名为：
 
 ```text
-灵动玻璃球-<versionName>.apk
+glass-orb-android-<versionName>.apk
 ```
 
-替换 APK 后同步更新：
+发布新版本时：
 
-- `dist/SHA256SUMS.txt`
-- `dist/README.md`
-- 根 `README.md` 中的版本和链接
-- `app/build.gradle.kts` 的 `versionCode` / `versionName`
-
-提交前运行：
+1. 更新 `app/build.gradle.kts` 的 `versionCode` / `versionName`，构建并按上文核验 APK。
+2. 把 APK 复制为 `dist/glass-orb-android-<versionName>.apk`（被 `.gitignore` 忽略，不会入库），更新 `dist/SHA256SUMS.txt`、`dist/README.md`、根 `README.md` 的版本与链接、`docs/CHANGELOG.md`。
+3. 提交并推送 `main`，然后发布 Release：
 
 ```sh
-find dist -maxdepth 1 -type f -name '*.apk' -print
 (cd dist && shasum -a 256 -c SHA256SUMS.txt)
-git diff --check
-git status --short
+git diff --check && git status --short
+git tag -a vX.Y.Z -m "灵动玻璃球 X.Y.Z" && git push origin vX.Y.Z
+gh release create vX.Y.Z dist/glass-orb-android-X.Y.Z.apk --title "灵动玻璃球 X.Y.Z" --notes-file <说明.md>
 ```
+
+Release 正文沿用固定格式：系统要求、包名、versionCode/versionName、Debug 签名说明、SHA-256、本版变更与真机验收提示。
 
 ## 安装
 
 ```sh
-adb install -r dist/灵动玻璃球-2.0.29.apk
+adb install -r glass-orb-android-2.0.29.apk
 ```
 
 Android 12+ 当前需要同时开启悬浮窗权限和应用的无障碍服务。Android 13+ 还会请求通知权限。厂商系统可能需要额外允许后台运行或开机自启。

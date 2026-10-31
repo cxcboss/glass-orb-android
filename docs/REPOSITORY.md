@@ -18,7 +18,7 @@
 │     ├─ test/               JVM 单元测试
 │     └─ androidTest/        设备/模拟器测试（文案按中文写，需在 zh-CN 环境运行）
 ├─ licenses/                 第三方许可证原文，构建时打包进 APK assets
-├─ dist/                     唯一交付 APK + SHA256SUMS.txt + 说明（本分支约定）
+├─ dist/                     发布说明 + SHA256SUMS.txt（APK 只作为 GitHub Release 附件，不入库）
 ├─ docs/                     全部文档，见下方索引
 │  └─ research/              推广/调研类资料（不影响构建）
 └─ scripts/
@@ -68,30 +68,32 @@ scripts/clean.sh             # 删除上表中的产物（不碰已跟踪文件�
 
 | 分支 | 状态 |
 | --- | --- |
-| `codex/independent-glass-orb` | 当前开发线，2.0.29；APK 放在 `dist/` |
-| `main`（远程默认） | 已发布线，停在 2.0.11；APK 通过 GitHub Release 分发（`v2.0.11`），源码树不含 APK |
+| `main`（远程默认） | 发布线，当前 2.0.29（Release `v2.0.29`）。所有发版从这里打标签 |
+| `codex/independent-glass-orb` | 2.0.29 的开发线，已通过合并提交并入 `main`，与 `main` 指向同一提交 |
 
-两条线在 2026-09 初分叉，`main` 之后被重写过，与开发线没有可快进的关系。把开发线合回 `main` 需要先决定 APK 的分发方式（`dist/` 还是 Release），这是发布决策，不要擅自强推 `main`。本地 `main` 只跟踪 `origin/main`，不在上面开发。
+两条线曾在 2026-09 初分叉（`main` 期间被重写过），2.0.29 用普通合并（`--no-ff`）把开发线并回 `main`，没有强推、没有改写已发布历史。之后建议直接在 `main` 上开短期功能分支，合并后删除。**不要强推 `main`**，它是公开仓库的默认分支。
+
+标签：`v2.0.11`、`v2.0.29`，均对应 GitHub Release。
 
 日常同步：
 
 ```sh
 git fetch --prune origin
 git status -sb                       # 确认 ahead/behind
-git push origin codex/independent-glass-orb
+git push origin main
 ```
 
 ## 5. 版本与发布
 
 1. 改 `app/build.gradle.kts` 的 `versionCode`（每次 +1）与 `versionName`。
 2. 构建并核验 APK（见 [构建与发布](BUILD_AND_RELEASE.md)）。
-3. 本分支：替换 `dist/` 里唯一的 APK，更新 `SHA256SUMS.txt`、`dist/README.md`、根 `README.md`、`docs/CHANGELOG.md`。
-4. 若走 GitHub Release（`main` 的做法）：打标签 `vX.Y.Z`，用 `gh release create vX.Y.Z dist/灵动玻璃球-X.Y.Z.apk --title "灵动玻璃球 X.Y.Z" --notes-file <说明>` 发布；Release 是公开内容，发布前确认许可声明齐全。
+3. APK 复制为 `dist/glass-orb-android-X.Y.Z.apk`（被忽略，不入库），更新 `dist/SHA256SUMS.txt`、`dist/README.md`、根 `README.md`、`docs/CHANGELOG.md`，提交并推送 `main`。
+4. 打标签 `vX.Y.Z` 并推送，用 `gh release create vX.Y.Z dist/glass-orb-android-X.Y.Z.apk --title "灵动玻璃球 X.Y.Z" --notes-file <说明>` 发布。Release 是公开内容，发布前确认许可声明齐全。
 
 ## 6. 提交约定
 
 - 提交信息用约定式前缀：`feat:` / `fix:` / `perf:` / `docs:` / `chore:` / `build:`，正文写清楚“为什么”。
-- `dist/` 只保留一个 APK；不要提交 `.apk.zip`、构建目录、日志或截图。
+- 不要提交任何 APK（`.gitignore` 已忽略 `dist/*.apk`），也不要提交 `.apk.zip`、构建目录、日志或截图。
 - 二进制体积：`.git` 约 300 MB，主要来自历史里的旧 APK、ASR 模型与 `.aar`。瘦身只能重写历史（`git filter-repo`），会改变全部提交 ID 并需要强推，必须先征得仓库所有者同意。
 - `gradlew.bat` 按 `.gitattributes` 以 LF 入库、检出为 CRLF；不要手动改它的换行。
 
@@ -100,6 +102,6 @@ git push origin codex/independent-glass-orb
 - [ ] `scripts/clean.sh`
 - [ ] `git status --short` 为空，或只剩有意保留的改动
 - [ ] `git fetch --prune origin`，本地分支与远程 ahead/behind 符合预期
-- [ ] `dist/` 只有一个 APK，`(cd dist && shasum -a 256 -c SHA256SUMS.txt)` 通过
+- [ ] 本地 `dist/` 里的 APK 与 Release 附件一致：`(cd dist && shasum -a 256 -c SHA256SUMS.txt)` 通过
 - [ ] 测试用过的模拟器/设备已卸载测试包、还原显示与语言设置
 - [ ] 文档中的版本号、APK 文件名与 `app/build.gradle.kts` 一致

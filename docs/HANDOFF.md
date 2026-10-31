@@ -10,8 +10,8 @@
 | 版本 | `2.0.29` / `versionCode 39` |
 | 包名 | `com.cxcboss.glassorb` |
 | SDK | `minSdk 29`、`targetSdk 30`（刻意保留）、`compileSdk 37` |
-| 开发分支 | `codex/independent-glass-orb` |
-| 交付物 | `dist/灵动玻璃球-2.0.29.apk`（Debug 签名侧载包，约 10 MB） |
+| 分支 | `main`（默认、已发布）；`codex/independent-glass-orb` 已合入 `main` |
+| 交付物 | [GitHub Release v2.0.29](https://github.com/cxcboss/glass-orb-android/releases/tag/v2.0.29) 附件 `glass-orb-android-2.0.29.apk`（Debug 签名侧载包，约 10 MB）；APK 不入库 |
 | UI | 平台 View 手写的 iOS 26 风格设置页 + 液态玻璃外壳；**无 Material、无 Compose** |
 | 渲染 | OpenGL ES 3.0 透明悬浮 Surface，活跃阶段请求 120 Hz |
 | 许可性质 | 非商业学习用途，见 `LICENSE`、`NOTICE.md`、`THIRD_PARTY_NOTICES.md` |
@@ -27,7 +27,7 @@ export JAVA_HOME=$(/usr/libexec/java_home -v 21)
 ```
 
 - 构建目录被 `build.gradle.kts` 重定向到系统临时目录（macOS：`$TMPDIR/glass-orb-android-build`），**不要**去 `app/build` 找 APK。查询方式见 [构建与发布](BUILD_AND_RELEASE.md)。
-- 安装：`adb install -r dist/灵动玻璃球-2.0.29.apk`。
+- 安装：从 Release 下载 `glass-orb-android-2.0.29.apk` 后 `adb install -r glass-orb-android-2.0.29.apk`。
 - 首次启动：设置 → 运行与权限，依次允许悬浮窗权限和无障碍触控服务（Android 12+ 必需），回到根页打开“显示灵动岛”。
 - 没有真机时，设置页可在任意 API 29+ 模拟器直接预览（悬浮层功能需要权限与 GLES 3.0）。
 
@@ -163,7 +163,7 @@ repository.reset(ConfigGroup.Glass)    // 恢复某一组默认值
 
 - [ ] `assembleDebug` 通过；`lintDebug` 无 error。
 - [ ] `testDebugUnitTest`、`compileDebugAndroidTestKotlin`（如需，设备上跑 `connectedDebugAndroidTest`）。
-- [ ] APK 包名、版本号、签名（Debug）和 SHA-256 已核验；`dist` 只有一个 APK，`SHA256SUMS.txt` 只记录它。
+- [ ] APK 包名、版本号、签名（Debug）和 SHA-256 已核验；APK 作为 Release 附件上传，`dist/SHA256SUMS.txt` 记录其哈希；仓库里不提交 APK。
 - [ ] 中文与英文设置页没有裁剪、遗漏、局部中文。
 - [ ] 浅色 / 深色模式各看一遍首页、详细页、子页、对话框。
 - [ ] 若动了动画/旋转/模糊：列出尚未完成的真机验收项（见 [已知问题](KNOWN_ISSUES.md)）。

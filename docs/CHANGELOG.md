@@ -32,6 +32,8 @@
 ### 文档与仓库整理
 - 新增 `docs/HANDOFF.md`（对接文档）、`SETTINGS_UI.md`、`AUDIT.md`、`CHANGELOG.md`；`AI_HANDOFF.md` 并入 `HANDOFF.md`。
 - 清理 `.DS_Store`、`.omx/` 工具状态、`dist/` 里的 APK 压缩副本；补全 `.gitignore`；推广研究文档移到 `docs/research/`。
+- APK 改为只作为 GitHub Release 附件发布（`glass-orb-android-2.0.29.apk`），仓库不再提交 APK；开发线合并回 `main`。
+- 新增 `docs/REPOSITORY.md` 与 `scripts/clean.sh`；`gradlew.bat` 按 `.gitattributes` 规范换行。
 - 更新应用内与仓库内的许可声明，使其与“无 Material、玻璃为独立实现”一致。
 
 ## 2.0.28（versionCode 38）

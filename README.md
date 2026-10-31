@@ -8,7 +8,7 @@
 - 包名：`com.cxcboss.glassorb`
 - 系统：Android 10（API 29）及以上
 - 图形：OpenGL ES 3.0
-- 安装包：[dist/灵动玻璃球-2.0.29.apk](dist/灵动玻璃球-2.0.29.apk)（Debug 签名，约 10 MB）
+- 安装包：[GitHub Releases · v2.0.29](https://github.com/cxcboss/glass-orb-android/releases/tag/v2.0.29)（`glass-orb-android-2.0.29.apk`，Debug 签名，约 10 MB）
 
 当前实现包含：
 

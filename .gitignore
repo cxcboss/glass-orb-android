@@ -22,4 +22,6 @@
 *.log
 /captures/
 
-# dist/ holds the one intentional sideloadable APK, its checksum and release notes.
+# APKs are published as GitHub Release assets, never committed. dist/ keeps only
+# the release notes and checksum; a locally built APK placed there stays ignored.
+/dist/*.apk

@@ -61,7 +61,8 @@
 9. 自适应画质（P9）与低电量模式降级。
 10. 仓库体积：`.git` 约 600 MB，历史里有旧 APK、ASR 模型与 `.aar`。如需瘦身需要 `git filter-repo` 重写历史，**会改变所有提交 ID，需用户决定后再做**。
 
-## 4. 仓库与分支状态（需要你决定）
+## 4. 仓库与分支状态
 
-- 当前分支 `codex/independent-glass-orb` 与 `origin/main` 已分叉：`origin/main` 停在 2.0.11 的 README，并在 10 月把 APK 迁出源码树、改为 GitHub Release 下载。本分支仍把 APK 放在 `dist/`。
-- 建议：确定统一做法（APK 放 Release 还是 `dist/`），再决定是否把本分支合并回 `main`。本次**没有**提交、推送或合并任何内容。
+- 2.0.29 已用普通合并并入远程默认分支 `main`，并发布 GitHub Release `v2.0.29`（附件 `glass-orb-android-2.0.29.apk`）。
+- APK 分发统一为 Release 附件（沿用 `main` 在 10 月确立的做法），仓库不再提交 APK。
+- `.git` 体积约 300 MB 来自历史里的旧 APK、模型与 `.aar`，瘦身需要重写历史，仍待所有者决定。
