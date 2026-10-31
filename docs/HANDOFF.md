@@ -188,4 +188,5 @@ repository.reset(ConfigGroup.Glass)    // 恢复某一组默认值
 
 - [项目架构](ARCHITECTURE.md) · [设置页设计说明](SETTINGS_UI.md) · [构建与发布](BUILD_AND_RELEASE.md)
 - [已知问题](KNOWN_ISSUES.md) · [审计与改进计划](AUDIT.md) · [更新日志](CHANGELOG.md)
+- [仓库与目录管理](REPOSITORY.md)（目录、清理、分支与发版）
 - [iOS 27 Siri 视觉体验推广研究](research/ios27-siri-promotion-research.md)

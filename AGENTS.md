@@ -8,3 +8,4 @@ Android 悬浮灵动岛 + OpenGL ES 3.0 玻璃球（包名 `com.cxcboss.glassorb
 - 设置页是平台 View 手写的 iOS 26 风格 + 液态玻璃（`ui/ios`、`ui/glass`），**玻璃背景源子树里不能放玻璃视图**。
 - 新增设置文案必须补英文映射（`ui/SettingsText.kt`）；新增配置字段要同步 `OrbConfig` 归一化与 `OrbConfigJson`。
 - 许可、固定参考提交与应用内声明必须保留。
+- 清理用 `scripts/clean.sh`；分支、远程与发版约定见 [docs/REPOSITORY.md](docs/REPOSITORY.md)。远程是公开仓库，不要强推 `main`。

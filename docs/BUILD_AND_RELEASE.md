@@ -22,7 +22,7 @@ sdk.dir=/path/to/Android/sdk
 
 这条命令验证 JVM 单元测试、Lint、设备测试源码编译和 Debug APK 构建。它不会自动执行 `androidTest`；设备测试需要另外连接设备或启动模拟器。只想确认能编译时，用 `./gradlew assembleDebug lintDebug`（约 30 秒）。
 
-构建完成后清理本机缓存：`./gradlew --stop`，再删除 `$TMPDIR/glass-orb-android-build`、`/tmp/glass-orb-gradle-project-cache` 与仓库根目录可能生成的 `.kotlin/`（均已被 `.gitignore` 忽略，可随时再生成）。
+构建完成后用 `scripts/clean.sh` 清理本机构建产物与缓存，详见 [仓库与目录管理](REPOSITORY.md)。
 
 ## 查找真实 APK
 

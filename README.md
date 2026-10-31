@@ -38,6 +38,7 @@
 - [设置页设计说明](docs/SETTINGS_UI.md)：iOS 26 风格与液态玻璃的实现、组件与取舍。
 - [审计与改进计划](docs/AUDIT.md)：缺陷、性能项和路线图。
 - [更新日志](docs/CHANGELOG.md)。
+- [仓库与目录管理](docs/REPOSITORY.md)：目录说明、清理脚本、分支/远程与发版约定。
 - [构建与发布](docs/BUILD_AND_RELEASE.md)：构建、签名、版本与 APK 核验流程。
 
 ## 许可与来源
