@@ -1,6 +1,7 @@
 package com.cxcboss.glassorb.ui
 
 import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt
@@ -56,3 +57,9 @@ fun isParameterModified(value: Float, defaultValue: Float, decimals: Int): Boole
     abs(value - defaultValue) >= 0.5f * 10f.pow(-decimals)
 
 fun restoreParameter(defaultValue: Float): Float = defaultValue
+
+/** Locale-independent value text such as `12.5 dp`; digits stay ASCII in every locale. */
+fun formatSliderValue(value: Float, suffix: String, decimals: Int): String = buildString {
+    append(String.format(Locale.US, "%.${decimals.coerceIn(0, 3)}f", value))
+    if (suffix.isNotEmpty()) append(' ').append(suffix)
+}

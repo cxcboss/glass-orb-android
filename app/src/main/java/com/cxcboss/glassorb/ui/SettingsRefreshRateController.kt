@@ -44,7 +44,7 @@ internal class SettingsRefreshRateController(
         }
     }
 
-    fun attach(scrollView: ScrollView) {
+    fun attach(scrollView: ScrollView, onScrolled: ((scrollY: Int) -> Unit)? = null) {
         scrollView.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -69,6 +69,7 @@ internal class SettingsRefreshRateController(
             false
         }
         scrollView.setOnScrollChangeListener { _, scrollY, oldScrollY, _, _ ->
+            onScrolled?.invoke(scrollY)
             if (scrollY == oldScrollY) return@setOnScrollChangeListener
             markScrollActivity()
             requestHighestRefreshRate()

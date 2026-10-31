@@ -1,12 +1,25 @@
-/.gradle/
-/.kotlin/
-/.idea/
+# Machine-local configuration and tool state
 /local.properties
-**/build/
-/.omx/
-/.superpowers/
+/.idea/
 *.iml
 .DS_Store
+/.omx/
+/.superpowers/
+/.claude/
+/.cursor/
+/.codex/
 
-# The dist folder contains the intentional sideloadable APK and release notes.
-# Keep generated build outputs and machine-local configuration out of Git.
+# Build outputs and caches (the Gradle build dir is redirected to the system temp dir)
+/.gradle/
+/.kotlin/
+**/build/
+/.externalNativeBuild/
+/.cxx/
+
+# Debris from local runs
+*.apk.zip
+*.hprof
+*.log
+/captures/
+
+# dist/ holds the one intentional sideloadable APK, its checksum and release notes.

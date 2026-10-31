@@ -41,6 +41,7 @@ internal class GlOrbPipeline(
     private var targetHeight = 0
     private var targetScale = 0f
     private var scenePopulated = false
+    private var renderedFrames = 0L
     private val vertexArray = IntArray(1)
     private val vertexBuffer = IntArray(1)
 
@@ -222,7 +223,11 @@ internal class GlOrbPipeline(
         drawQuad()
 
         GLES30.glBindVertexArray(0)
-        checkGl("render frame")
+        // glGetError can serialize the driver pipeline. Check the first frames
+        // and then periodically: a persistent error still surfaces within one
+        // second at 120 Hz, without a CPU/GPU sync point on every frame.
+        renderedFrames++
+        if (renderedFrames <= 2 || renderedFrames % GL_ERROR_CHECK_INTERVAL == 0L) checkGl("render frame")
     }
 
     fun invalidateTargets() {
@@ -266,6 +271,10 @@ internal class GlOrbPipeline(
 
     private fun drawQuad() {
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+    }
+
+    private companion object {
+        const val GL_ERROR_CHECK_INTERVAL = 120L
     }
 
     private fun softenNegative(value: Float, bounce: Float): Float {

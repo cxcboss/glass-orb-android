@@ -2,7 +2,7 @@
 
 ## 环境
 
-- JDK 17
+- JDK 17 或更高（Temurin 21 已验证）
 - Android SDK Platform 37
 - Gradle Wrapper（使用仓库中的 `./gradlew`）
 - Android 设备最低 API 29，且必须支持 OpenGL ES 3.0
@@ -20,7 +20,9 @@ sdk.dir=/path/to/Android/sdk
   --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
 ```
 
-这条命令验证 JVM 单元测试、Lint、设备测试源码编译和 Debug APK 构建。它不会自动执行 `androidTest`；设备测试需要另外连接设备或启动模拟器。
+这条命令验证 JVM 单元测试、Lint、设备测试源码编译和 Debug APK 构建。它不会自动执行 `androidTest`；设备测试需要另外连接设备或启动模拟器。只想确认能编译时，用 `./gradlew assembleDebug lintDebug`（约 30 秒）。
+
+构建完成后清理本机缓存：`./gradlew --stop`，再删除 `$TMPDIR/glass-orb-android-build`、`/tmp/glass-orb-gradle-project-cache` 与仓库根目录可能生成的 `.kotlin/`（均已被 `.gitignore` 忽略，可随时再生成）。
 
 ## 查找真实 APK
 
@@ -85,7 +87,7 @@ git status --short
 ## 安装
 
 ```sh
-adb install -r dist/灵动玻璃球-2.0.28.apk
+adb install -r dist/灵动玻璃球-2.0.29.apk
 ```
 
 Android 12+ 当前需要同时开启悬浮窗权限和应用的无障碍服务。Android 13+ 还会请求通知权限。厂商系统可能需要额外允许后台运行或开机自启。

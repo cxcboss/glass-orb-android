@@ -82,6 +82,7 @@ class OverlayWindowController(
         override fun onDisplayAdded(displayId: Int) = Unit
         override fun onDisplayRemoved(displayId: Int) = Unit
         override fun onDisplayChanged(displayId: Int) {
+            invalidateDisplayGeometry()
             if (view != null) onConfigurationChanged()
         }
     }
@@ -124,6 +125,9 @@ class OverlayWindowController(
     private val pendingLayoutUpdates = LatestFrameUpdate<OrbConfig>()
     private var showDarkCapsuleOutline = false
     private var lastStableDisplayGeometry: RotationDisplayGeometry? = null
+    private var cachedDisplayGeometry: RotationDisplayGeometry? = null
+    private var displayGeometryCachedAtNanos = 0L
+    private var displayGeometryVolatileUntilNanos = 0L
     private var collapseReleaseVelocityDpPerSecond = 0f
     private var collapseDirection = 0
     private var systemAssistantWindowVisible = false
@@ -197,6 +201,7 @@ class OverlayWindowController(
             return false
         }
 
+        invalidateDisplayGeometry()
         stateMachine.showCollapsed()
         backgroundBlurRevealStartNanos = Long.MIN_VALUE
         morphSpring.snapTo(0f)
@@ -297,14 +302,21 @@ class OverlayWindowController(
             schedulePermissionCheck()
             true
         } catch (error: Throwable) {
-            inputRegion?.close()
-            inputRegion = null
-            runCatching { windowManager.removeViewImmediate(target) }
-            runCatching { windowManager.removeViewImmediate(host) }
-            runCatching { windowManager.removeViewImmediate(dimView) }
-            blurController.destroy()
-            ambientBlurController.destroy()
-            textureView.release()
+            if (view != null) {
+                // The failure happened after the windows were published to the
+                // controller fields; tear everything down through the normal
+                // path so a later show() does not see a half-built overlay.
+                removeView()
+            } else {
+                inputRegion?.close()
+                inputRegion = null
+                runCatching { windowManager.removeViewImmediate(target) }
+                runCatching { windowManager.removeViewImmediate(host) }
+                runCatching { windowManager.removeViewImmediate(dimView) }
+                blurController.destroy()
+                ambientBlurController.destroy()
+                textureView.release()
+            }
             onFatalError(error.message ?: "无法创建悬浮窗")
             false
         }
@@ -385,6 +397,7 @@ class OverlayWindowController(
         this.screenOn = screenOn
         view?.setPaused(!screenOn)
         if (screenOn) {
+            invalidateDisplayGeometry()
             lastFrameNanos = 0L
             postFrame()
             updateStatusBarVisibilityMonitor()
@@ -428,6 +441,7 @@ class OverlayWindowController(
     }
 
     fun onConfigurationChanged() {
+        invalidateDisplayGeometry()
         if (trackingSwipe) cancelGesture()
         pendingLayoutUpdates.offer(config)
         forceRender = true
@@ -1200,7 +1214,32 @@ class OverlayWindowController(
         inputRegion?.update(region)
     }
 
+    /**
+     * Display geometry is consumed by every rendered frame. On Android 11+ a
+     * fresh read is a WindowMetrics query that can cross into the window
+     * manager, so a stable value is reused for a short TTL. Any rotation,
+     * display or configuration change opens a volatile window in which every
+     * call reads fresh values, so rotation is still followed frame by frame.
+     * Frame cadence is unchanged; only redundant queries are skipped.
+     */
     private fun displayGeometry(): RotationDisplayGeometry {
+        val now = System.nanoTime()
+        val cached = cachedDisplayGeometry
+        if (cached != null && now >= displayGeometryVolatileUntilNanos &&
+            now - displayGeometryCachedAtNanos < DISPLAY_GEOMETRY_TTL_NANOS
+        ) return cached
+        val fresh = computeDisplayGeometry()
+        cachedDisplayGeometry = fresh
+        displayGeometryCachedAtNanos = now
+        return fresh
+    }
+
+    private fun invalidateDisplayGeometry() {
+        cachedDisplayGeometry = null
+        displayGeometryVolatileUntilNanos = System.nanoTime() + DISPLAY_GEOMETRY_VOLATILE_NANOS
+    }
+
+    private fun computeDisplayGeometry(): RotationDisplayGeometry {
         @Suppress("DEPRECATION")
         val display = windowManager.defaultDisplay
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -1504,6 +1543,12 @@ class OverlayWindowController(
         shape: ShapeFrame? = null,
     ) {
         val controller = backgroundBlurController ?: return
+        if (!config.container.backgroundBlurEnabled) {
+            // BackgroundBlurPolicy rejects every request while the user toggle
+            // is off, so skip building the per-frame aperture and request.
+            controller.hide()
+            return
+        }
         val expanded = stateMachine.state != OverlayState.Collapsed && stateMachine.state != OverlayState.Hidden
         val blurVisibility = backgroundBlurVisibilityFactor()
         val visible = view != null && screenOn && expanded &&
@@ -1654,6 +1699,8 @@ class OverlayWindowController(
 
     private companion object {
         const val BLUR_REVEAL_DURATION_NANOS = 180_000_000f
+        const val DISPLAY_GEOMETRY_TTL_NANOS = 250_000_000L
+        const val DISPLAY_GEOMETRY_VOLATILE_NANOS = 1_500_000_000L
         const val PERMISSION_CHECK_INTERVAL_MS = 15_000L
         const val STATUS_BAR_VISIBILITY_CHECK_MS = 200L
         // Response values are tuned against the settled thresholds below:

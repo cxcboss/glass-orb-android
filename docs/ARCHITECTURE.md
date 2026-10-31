@@ -1,17 +1,17 @@
 # 项目架构
 
-本文描述 `2.0.28 / versionCode 38` 的实际实现。修改前应先确认代码仍与本文一致。
+本文描述 `2.0.29 / versionCode 39` 的实际实现。修改前应先确认代码仍与本文一致。
 
 ## 总体数据流
 
 ```text
-MainActivity + NativeSettingsController
+MainActivity + NativeSettingsController（iOS 风格设置页 + 液态玻璃外壳）
                 │
                 ▼
-           MainViewModel
-                │ 即时发布，70 ms 防抖持久化
+           MainViewModel（薄封装）
+                │ publishAndPersist：即时发布 + 仓库内 70 ms 防抖落盘
                 ▼
-       OrbConfigRepository / DataStore
+       OrbConfigRepository / DataStore（仅启动读取一次）
                 │ StateFlow<OrbConfig>
                 ▼
           OrbOverlayService
@@ -24,13 +24,13 @@ MainActivity + NativeSettingsController
         └─ OrbTextureView → GlRenderLoop → GlOrbPipeline
 ```
 
-设置和悬浮层运行在同一应用进程。滑杆先通过 `OrbConfigRepository.publish()` 更新内存快照，让悬浮层下一帧立即响应；`MainViewModel` 再把最终值写入 DataStore，避免每个触摸采样都触发磁盘写入。
+设置和悬浮层运行在同一应用进程。滑杆通过 `OrbConfigRepository.publishAndPersist()` 先更新内存快照，让悬浮层下一帧立即响应；落盘由仓库自己的进程级协程防抖完成，因此即使设置页刚被销毁，最后一个值也会写入。本进程是 DataStore 的唯一写入者，内存快照即真相，DataStore 只在启动时读取一次。
 
 ## 目录与职责
 
 | 路径 | 职责 |
 | --- | --- |
-| `app/src/main/java/.../ui` | 原生设置界面、导航、交互逻辑和设置页高刷新请求 |
+| `app/src/main/java/.../ui` | iOS 26 风格设置页（`NativeSettingsUi`）、`ios/` 控件、`glass/` 液态玻璃、文案映射与设置页高刷新请求 |
 | `app/src/main/java/.../data` | DataStore、运行时配置发布和开机自启偏好 |
 | `app/src/main/java/.../model` | 配置模型、归一化、JSON 兼容与迁移 |
 | `app/src/main/java/.../overlay` | 前台服务、窗口层级、触控、旋转、模糊、全屏与助手联动 |
@@ -95,9 +95,9 @@ MainActivity + NativeSettingsController
 
 ## 设置与本地化
 
-`NativeSettingsUi.kt` 使用 Material 3 Views 动态创建单栏设置页和大圆角分组卡片。首页底栏为“常用 / 详细”；详细页按配置组展示，最下方“其它”仅保留“运行权限”和“关于”。
+`NativeSettingsUi.kt` 用平台 View 复刻 iOS 26“设置”（无 Material、无 Compose）：根页大标题“设置”、应用资料卡、彩色图标分组列表与底部玻璃搜索框；二级页（7 个配置组、运行与权限、关于、开源许可）以“图标 + 标题 + 说明”头卡开头。运行状态、权限、开机自启等就地刷新，只有批量重置才重建当前页。完整设计见 [设置页设计说明](SETTINGS_UI.md)。
 
-中文是代码中的主文案；英文由 `ui()` 映射和 `values-en/strings.xml` 共同提供，跟随系统语言自动切换。新增或修改文案时必须同时检查这两处，避免局部中文残留。
+中文是代码中的主文案；英文由 `SettingsText` 映射和 `values-en/strings.xml`（通知、Toast）提供，跟随系统语言自动切换。新增文案必须同时补英文映射，否则英文系统会出现局部中文。
 
 ## 权限与助手联动
 

@@ -23,6 +23,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.cxcboss.glassorb.R
 import com.cxcboss.glassorb.overlay.OrbOverlayService
 import com.cxcboss.glassorb.overlay.AccessibilityStatus
 import com.cxcboss.glassorb.overlay.OverlayRuntime
@@ -45,14 +46,14 @@ class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (!granted) Toast.makeText(this, "通知权限未开启，悬浮服务仍可运行", Toast.LENGTH_SHORT).show()
+        if (!granted) Toast.makeText(this, R.string.toast_notification_denied, Toast.LENGTH_SHORT).show()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Android 15/16 enforce edge-to-edge for modern target SDKs. Keep the
-        // content behind transparent system bars and apply their insets once
-        // to the root so every Material control retains its touch target.
+        // content behind transparent system bars; the settings controller
+        // turns the insets into list padding and glass-chrome placement.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         darkMode = isSystemDarkMode()
         updateSystemBars()
@@ -61,11 +62,14 @@ class MainActivity : ComponentActivity() {
             id = View.generateViewId()
             clipToPadding = false
         }
-        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+        // Content draws under the (transparent) system bars; the settings
+        // surface positions its glass chrome and list padding from the insets.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
             )
-            view.setPadding(0, bars.top, 0, bars.bottom)
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            if (::settingsController.isInitialized) settingsController.applyInsets(bars.top, bars.bottom, ime)
             insets
         }
         settingsController = NativeSettingsController(
@@ -171,7 +175,7 @@ class MainActivity : ComponentActivity() {
         runCatching {
             OrbOverlayService.start(this)
             OrbOverlayService.setAppAppearance(this, active = true, dark = darkMode)
-        }.onFailure { Toast.makeText(this, it.message ?: "无法启动悬浮层", Toast.LENGTH_LONG).show() }
+        }.onFailure { Toast.makeText(this, it.message ?: getString(R.string.toast_overlay_start_failed), Toast.LENGTH_LONG).show() }
     }
 
     private fun showOverlay() {
@@ -184,17 +188,17 @@ class MainActivity : ComponentActivity() {
         runCatching {
             OrbOverlayService.show(this)
             OrbOverlayService.setAppAppearance(this, active = true, dark = darkMode)
-        }.onFailure { Toast.makeText(this, it.message ?: "无法显示悬浮层", Toast.LENGTH_LONG).show() }
+        }.onFailure { Toast.makeText(this, it.message ?: getString(R.string.toast_overlay_show_failed), Toast.LENGTH_LONG).show() }
     }
 
     private fun hideOverlay() {
         runCatching { OrbOverlayService.hide(this) }
-            .onFailure { Toast.makeText(this, it.message ?: "无法隐藏悬浮层", Toast.LENGTH_LONG).show() }
+            .onFailure { Toast.makeText(this, it.message ?: getString(R.string.toast_overlay_hide_failed), Toast.LENGTH_LONG).show() }
     }
 
     private fun stopOverlay() {
         runCatching { OrbOverlayService.stop(this) }
-            .onFailure { Toast.makeText(this, it.message ?: "无法停止悬浮层", Toast.LENGTH_LONG).show() }
+            .onFailure { Toast.makeText(this, it.message ?: getString(R.string.toast_overlay_stop_failed), Toast.LENGTH_LONG).show() }
     }
 
     private fun updateOverlayPermission() {

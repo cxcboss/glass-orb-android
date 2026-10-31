@@ -9,7 +9,8 @@
 - License: Apache License 2.0 — https://www.apache.org/licenses/LICENSE-2.0
 
 No source files from AndroidLiquidGlass are copied into the application. The
-settings surface uses Material 3 Android Views and opaque system-color surfaces.
+settings surface is built from Android platform Views; its Liquid Glass
+material is an independent implementation (RenderNode/RenderEffect/AGSL).
 No Apple restricted fonts or SF Symbols are bundled.
 
 The unmodified Apache 2.0 license is stored in

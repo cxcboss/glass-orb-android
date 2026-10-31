@@ -22,8 +22,11 @@ internal class BackgroundAmbientBlurController(
     }
     private var attached = false
     private var destroyed = false
+    private var attachFailed = false
     private var lastStrips: List<IntRect>? = null
     private var lastMaximumRadius = Int.MIN_VALUE
+    private var lastDisplay: RotationDisplayGeometry? = null
+    private var lastGradientHeightPx = Int.MIN_VALUE
 
     fun update(
         enabled: Boolean,
@@ -32,19 +35,26 @@ internal class BackgroundAmbientBlurController(
         gradientHeightPx: Int,
         blurPercent: Float,
     ) {
-        if (destroyed) return
+        // A failed attach is final for this overlay session. Re-attaching later
+        // would insert the strips above the GL window and blur the orb itself.
+        if (destroyed || attachFailed) return
         val active = enabled && crossWindowBlurEnabled && blurPercent > 0f
-        val strips = strips(display, gradientHeightPx)
-        if (!ensureAttached(strips)) return
         val maximumRadius = if (active) {
             BackgroundBlurPolicy.radiusPxFromPercent(blurPercent)
         } else {
             0
         }
-        // updateBackgroundDim participates in the render path, but these five
-        // static top-gradient windows only need work when state, capability or
-        // physical display geometry changes. Avoid even a no-op Window call on
-        // every 90/120/144 Hz frame.
+        // updateBackgroundDim participates in the render path, so this runs on
+        // every 90/120/144 Hz frame. The five static strips only change with
+        // state, capability or physical display geometry; compare the cheap
+        // inputs first so the idle frame allocates nothing.
+        if (attached && lastMaximumRadius == maximumRadius &&
+            lastGradientHeightPx == gradientHeightPx && lastDisplay == display
+        ) return
+        val strips = strips(display, gradientHeightPx)
+        if (!ensureAttached(strips)) return
+        lastDisplay = display
+        lastGradientHeightPx = gradientHeightPx
         if (lastStrips == strips && lastMaximumRadius == maximumRadius) return
         layers.forEachIndexed { index, layer ->
             val radius = (maximumRadius * (1f - index / (STRIP_COUNT - 1f))).roundToInt()
@@ -61,6 +71,8 @@ internal class BackgroundAmbientBlurController(
         attached = false
         lastStrips = null
         lastMaximumRadius = Int.MIN_VALUE
+        lastDisplay = null
+        lastGradientHeightPx = Int.MIN_VALUE
         destroyed = true
     }
 
@@ -72,6 +84,7 @@ internal class BackgroundAmbientBlurController(
             }
             if (!shown) {
                 layers.forEach { runCatching { it.destroy() } }
+                attachFailed = true
                 return false
             }
             attached = true

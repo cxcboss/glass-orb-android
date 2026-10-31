@@ -14,8 +14,8 @@ android {
         // uses explicit edge-to-edge/insets handling in the settings activity.
         minSdk = 29
         targetSdk = 30
-        versionCode = 38
-        versionName = "2.0.28"
+        versionCode = 39
+        versionName = "2.0.29"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -47,9 +47,8 @@ android {
 }
 
 dependencies {
-    // Official Material 3 Views provide current Android controls without a
-    // Compose UI stack in this small native settings surface.
-    implementation("com.google.android.material:material:1.14.0")
+    // The settings surface is hand-built from platform Views (iOS 26 style
+    // with Liquid Glass chrome); no Material or Compose UI stack is bundled.
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.activity:activity-ktx:1.12.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.4")

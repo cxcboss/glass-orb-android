@@ -33,6 +33,7 @@ class OrbOverlayService : Service() {
     private lateinit var notificationManager: NotificationManager
     private lateinit var xiaomiMemoryAdvisor: XiaomiMemoryAdvisor
     private var overlayVisible = false
+    private var foregroundStarted = false
     private var receiverRegistered = false
     private var preserveTerminalStatus = false
 
@@ -73,7 +74,15 @@ class OrbOverlayService : Service() {
             return START_NOT_STICKY
         }
 
-        startInForeground()
+        // Appearance/preview commands only tweak a running overlay. If the
+        // service was instantiated just to receive one (stale UI state), do not
+        // post a foreground notification for an overlay that does not exist.
+        val tweakOnly = action == ACTION_APP_APPEARANCE || action == ACTION_TOUCH_PREVIEW
+        if (tweakOnly && !foregroundStarted) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        if (!tweakOnly) startInForeground()
         when (action) {
             ACTION_HIDE -> {
                 controller.hide()
@@ -139,6 +148,7 @@ class OrbOverlayService : Service() {
             buildNotification(),
             foregroundType,
         )
+        foregroundStarted = true
     }
 
     private fun refreshNotification() {
@@ -153,7 +163,9 @@ class OrbOverlayService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val visibilityAction = if (overlayVisible) ACTION_HIDE else ACTION_SHOW
-        val visibilityLabel = if (overlayVisible) "隐藏" else "显示"
+        val visibilityLabel = getString(
+            if (overlayVisible) R.string.notification_action_hide else R.string.notification_action_show,
+        )
         val visibilityIntent = PendingIntent.getService(
             this,
             2,
@@ -166,7 +178,9 @@ class OrbOverlayService : Service() {
             Intent(this, OrbOverlayService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val statusText = if (overlayVisible) "点击灵动岛展开，上滑小球收起" else "悬浮层已隐藏"
+        val statusText = getString(
+            if (overlayVisible) R.string.notification_text_visible else R.string.notification_text_hidden,
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_orb)
             .setContentTitle(getString(R.string.notification_title))
@@ -177,8 +191,8 @@ class OrbOverlayService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(0, visibilityLabel, visibilityIntent)
-            .addAction(0, "打开设置", openSettings)
-            .addAction(0, "停止", stopIntent)
+            .addAction(0, getString(R.string.notification_action_settings), openSettings)
+            .addAction(0, getString(R.string.notification_action_stop), stopIntent)
             .build()
     }
 
