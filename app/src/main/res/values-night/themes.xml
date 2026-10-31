@@ -1,23 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.GlassOrb.Base" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:fontFamily">sans</item>
+    <style name="Theme.GlassOrb.Base" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:fontFamily">sans-serif</item>
         <item name="android:windowBackground">@color/app_surface_dark</item>
         <item name="android:colorBackground">@color/app_surface_dark</item>
-        <item name="colorSurface">#1C1F25</item>
-        <item name="colorOnSurface">#F0F1F5</item>
-        <item name="colorOnSurfaceVariant">#ADB2BD</item>
-        <item name="android:textColorPrimary">#F0F1F5</item>
-        <item name="android:textColorSecondary">#ADB2BD</item>
+        <item name="android:textColorPrimary">#FFFFFF</item>
+        <item name="android:textColorSecondary">#99EBEBF5</item>
         <item name="android:forceDarkAllowed">false</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@color/app_surface_dark</item>
-        <item name="android:windowActionModeOverlay">true</item>
-        <item name="colorPrimary">@color/brand_blue_dark</item>
-        <item name="colorSecondary">@color/brand_blue_dark</item>
-        <item name="android:colorAccent">@color/brand_blue_dark</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:colorAccent">@color/brand_blue_dark</item>
+        <item name="android:windowNoTitle">true</item>
     </style>
     <style name="Theme.GlassOrb" parent="Theme.GlassOrb.Base" />
 </resources>

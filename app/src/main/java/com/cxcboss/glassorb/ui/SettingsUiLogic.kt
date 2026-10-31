@@ -1,31 +1,10 @@
 package com.cxcboss.glassorb.ui
 
-import com.cxcboss.glassorb.data.ConfigGroup
 import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.roundToInt
-
-sealed interface SettingsRoute {
-    data object Home : SettingsRoute
-    data object OverlayDetails : SettingsRoute
-    data class ConfigGroupDetail(val group: ConfigGroup) : SettingsRoute
-    data object Presets : SettingsRoute
-    data object DataManagement : SettingsRoute
-    data object About : SettingsRoute
-}
-
-fun routeFor(group: ConfigGroup): String = "group/${group.name}"
-
-fun parseSettingsRoute(route: String): SettingsRoute = when (route) {
-    "overlay" -> SettingsRoute.OverlayDetails
-    "presets" -> SettingsRoute.Presets
-    "data" -> SettingsRoute.DataManagement
-    "about" -> SettingsRoute.About
-    else -> ConfigGroup.entries.firstOrNull { route == routeFor(it) }
-        ?.let(SettingsRoute::ConfigGroupDetail)
-        ?: SettingsRoute.Home
-}
 
 enum class OverlayAction { RequestPermission, Show, Start, Hide, None }
 
@@ -78,3 +57,9 @@ fun isParameterModified(value: Float, defaultValue: Float, decimals: Int): Boole
     abs(value - defaultValue) >= 0.5f * 10f.pow(-decimals)
 
 fun restoreParameter(defaultValue: Float): Float = defaultValue
+
+/** Locale-independent value text such as `12.5 dp`; digits stay ASCII in every locale. */
+fun formatSliderValue(value: Float, suffix: String, decimals: Int): String = buildString {
+    append(String.format(Locale.US, "%.${decimals.coerceIn(0, 3)}f", value))
+    if (suffix.isNotEmpty()) append(' ').append(suffix)
+}

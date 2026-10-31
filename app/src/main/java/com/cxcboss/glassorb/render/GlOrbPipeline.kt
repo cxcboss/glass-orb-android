@@ -15,10 +15,15 @@ internal class GlOrbPipeline(
     context: Context,
     private val displayDensity: Float,
 ) {
+    private val palettePlan = DynamicPalettePassPlan
     private val vertexSource = context.assets.open("shaders/screen.vert").bufferedReader().use { it.readText() }
     private val effectProgram = GlProgram(
         vertexSource,
         context.assets.open("shaders/effect.frag").bufferedReader().use { it.readText() },
+    )
+    private val paletteProgram = GlProgram(
+        vertexSource,
+        context.assets.open("shaders/palette.frag").bufferedReader().use { it.readText() },
     )
     private val containerProgram = GlProgram(
         vertexSource,
@@ -30,11 +35,13 @@ internal class GlOrbPipeline(
     )
 
     private var effectTarget: RenderTarget? = null
+    private var paletteTarget: RenderTarget? = null
     private var sceneTarget: RenderTarget? = null
     private var targetWidth = 0
     private var targetHeight = 0
     private var targetScale = 0f
     private var scenePopulated = false
+    private var renderedFrames = 0L
     private val vertexArray = IntArray(1)
     private val vertexBuffer = IntArray(1)
 
@@ -59,9 +66,10 @@ internal class GlOrbPipeline(
     fun render(snapshot: RenderSnapshot, width: Int, height: Int) {
         ensureTargets(width, height, snapshot.config.performance.renderScale)
         val effect = requireNotNull(effectTarget)
+        val palette = requireNotNull(paletteTarget)
         val scene = requireNotNull(sceneTarget)
         val config = snapshot.config
-        val frame = ShapeFrame.from(snapshot, width, height, displayDensity)
+        val frame = snapshot.presentationFrame?.shape ?: ShapeFrame.from(snapshot, width, height, displayDensity)
         val morph = frame.morph
         val density = frame.density
         val visualScale = frame.visualScale
@@ -70,7 +78,8 @@ internal class GlOrbPipeline(
         val topPad = frame.top
         val centerX = frame.centerX
         val centerY = frame.centerY
-        val effectSize = config.geometry.orbDiameterDp * config.geometry.effectScale * density * visualScale
+        val effectSize = maxOf(config.geometry.orbWidthDp, config.geometry.orbHeightDp) *
+            config.geometry.effectScale * density * visualScale
         val weights = RenderTransition.weights(snapshot.thinkingProgress)
         val orbVisibility = smoothstep(0.08f, 0.72f, morph)
         val waveDelay = config.motion.waveFadeDelayMs / 1_000f
@@ -83,11 +92,14 @@ internal class GlOrbPipeline(
         GLES30.glDisable(GLES30.GL_BLEND)
         GLES30.glBindVertexArray(vertexArray[0])
 
-        // The two off-screen passes are the expensive animated part. During a
-        // collapse keep their last image and render only the lightweight shape
-        // pass. A resize invalidates scenePopulated and forces one fresh pass.
-        val renderAmbientScene = snapshot.state != OverlayState.Collapsed &&
-            (!snapshot.collapseEffectsFrozen || !scenePopulated)
+        // Keep both off-screen passes live during expand, drag and collapse so
+        // the glass scene follows the 120 Hz geometry continuously. A resize
+        // invalidates scenePopulated and forces the next pass to recreate it.
+        val renderAmbientScene = RenderWorkPolicy.shouldRenderAmbientScene(
+            state = snapshot.state,
+            effectsFrozen = snapshot.collapseEffectsFrozen,
+            scenePopulated = scenePopulated,
+        )
         if (renderAmbientScene) {
             effect.bind()
             GLES30.glViewport(0, 0, effect.width, effect.height)
@@ -108,7 +120,10 @@ internal class GlOrbPipeline(
             effectProgram.float("uBandFillThickness", config.wave.bandFillThickness)
             effectProgram.float("uSoftness", config.wave.softness)
             effectProgram.float("uWhiteClip", config.wave.whiteBloom)
-            effectProgram.float("uHueShift", config.wave.hueShiftDegrees)
+            effectProgram.float(
+                "uHueShift",
+                config.wave.hueShiftDegrees + config.glass.internalHueDegrees,
+            )
             effectProgram.float("uLow", snapshot.bands.low)
             effectProgram.float("uMid", snapshot.bands.mid)
             effectProgram.float("uHigh", snapshot.bands.high)
@@ -118,13 +133,33 @@ internal class GlOrbPipeline(
             effectProgram.float("uRotation", config.dots.rotationSpeed)
             drawQuad()
 
+            palette.bind()
+            GLES30.glViewport(0, 0, palette.width, palette.height)
+            GLES30.glClearColor(0f, 0f, 0f, 0f)
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
+            paletteProgram.use()
+            effect.bindTexture(palettePlan.bindings.effectTexture.textureUnit)
+            paletteProgram.int(
+                palettePlan.bindings.effectTexture.uniformName,
+                palettePlan.bindings.effectTexture.textureUnit,
+            )
+            paletteProgram.vec2(
+                palettePlan.bindings.effectResolutionUniform,
+                effect.width.toFloat(),
+                effect.height.toFloat(),
+            )
+            drawQuad()
+
             scene.bind()
             GLES30.glViewport(0, 0, targetWidth, targetHeight)
             GLES30.glClearColor(0f, 0f, 0f, 0f)
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
             containerProgram.use()
-            effect.bindTexture(0)
-            containerProgram.int("uEffectTexture", 0)
+            effect.bindTexture(palettePlan.bindings.effectTexture.textureUnit)
+            containerProgram.int(
+                palettePlan.bindings.effectTexture.uniformName,
+                palettePlan.bindings.effectTexture.textureUnit,
+            )
             containerProgram.vec2("uResolution", targetWidth.toFloat(), targetHeight.toFloat())
             containerProgram.vec2("uEffectOrigin", (centerX - effectSize * 0.5f) * targetScale,
                 (centerY - effectSize * 0.5f) * targetScale)
@@ -141,8 +176,16 @@ internal class GlOrbPipeline(
         GLES30.glClearColor(0f, 0f, 0f, 0f)
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
         glassProgram.use()
-        scene.bindTexture(0)
-        glassProgram.int("uSceneTexture", 0)
+        scene.bindTexture(palettePlan.bindings.sceneTexture.textureUnit)
+        glassProgram.int(
+            palettePlan.bindings.sceneTexture.uniformName,
+            palettePlan.bindings.sceneTexture.textureUnit,
+        )
+        palette.bindTexture(palettePlan.bindings.paletteTexture.textureUnit)
+        glassProgram.int(
+            palettePlan.bindings.paletteTexture.uniformName,
+            palettePlan.bindings.paletteTexture.textureUnit,
+        )
         glassProgram.vec2("uResolution", width.toFloat(), height.toFloat())
         glassProgram.vec2("uCanvasSize", width.toFloat(), height.toFloat())
         glassProgram.vec2("uPanelOrigin", centerX - shapeWidth * 0.5f, topPad)
@@ -150,8 +193,13 @@ internal class GlOrbPipeline(
         glassProgram.float("uMarginPx", 0f)
         glassProgram.float("uCornerRadius", minOf(shapeWidth, shapeHeight) * 0.5f)
         glassProgram.float("uGlassVisibility", orbVisibility)
+        glassProgram.float("uGlassContentOpacity", frame.glassContentOpacity)
         glassProgram.float("uCollapsed", if (snapshot.state == OverlayState.Collapsed) 1f else 0f)
         glassProgram.float("uCapsuleOutline", if (snapshot.capsuleOutline) 1f else 0f)
+        glassProgram.float(
+            "uCapsuleOpacity",
+            if (snapshot.state == OverlayState.Collapsed) snapshot.fullscreenCapsuleOpacity else 1f,
+        )
         glassProgram.float("uHeight", config.glass.internalDepth * density)
         glassProgram.float("uCurvature", config.glass.curvature)
         glassProgram.float("uRefractAmount", -56f * density)
@@ -169,10 +217,17 @@ internal class GlOrbPipeline(
         glassProgram.float("uShadowOffsetY", config.glass.shadowOffset)
         glassProgram.float("uCausticOffsetY", config.glass.causticOffset)
         glassProgram.float("uProjectionSoftness", config.glass.lightSoftness * density)
+        glassProgram.float("uInternalHueShift", config.glass.internalHueDegrees / 360f)
+        glassProgram.float("uUpperHighlightHue", config.glass.upperHighlightHueDegrees / 360f)
+        glassProgram.float("uUpperHighlightAmount", config.glass.upperHighlightAmount)
         drawQuad()
 
         GLES30.glBindVertexArray(0)
-        checkGl("render frame")
+        // glGetError can serialize the driver pipeline. Check the first frames
+        // and then periodically: a persistent error still surfaces within one
+        // second at 120 Hz, without a CPU/GPU sync point on every frame.
+        renderedFrames++
+        if (renderedFrames <= 2 || renderedFrames % GL_ERROR_CHECK_INTERVAL == 0L) checkGl("render frame")
     }
 
     fun invalidateTargets() {
@@ -183,10 +238,13 @@ internal class GlOrbPipeline(
 
     fun release() {
         effectTarget?.release()
+        paletteTarget?.release()
         sceneTarget?.release()
         effectTarget = null
+        paletteTarget = null
         sceneTarget = null
         effectProgram.release()
+        paletteProgram.release()
         containerProgram.release()
         glassProgram.release()
         GLES30.glDeleteBuffers(1, vertexBuffer, 0)
@@ -199,6 +257,7 @@ internal class GlOrbPipeline(
         val scaledHeight = max(1, (height * safeScale).roundToInt())
         if (targetWidth == scaledWidth && targetHeight == scaledHeight && targetScale == safeScale) return
         effectTarget?.release()
+        paletteTarget?.release()
         sceneTarget?.release()
         targetWidth = scaledWidth
         targetHeight = scaledHeight
@@ -206,11 +265,16 @@ internal class GlOrbPipeline(
         scenePopulated = false
         val squareSize = max(scaledWidth, scaledHeight)
         effectTarget = RenderTarget(squareSize, squareSize)
+        paletteTarget = RenderTarget(1, 1)
         sceneTarget = RenderTarget(scaledWidth, scaledHeight)
     }
 
     private fun drawQuad() {
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4)
+    }
+
+    private companion object {
+        const val GL_ERROR_CHECK_INTERVAL = 120L
     }
 
     private fun softenNegative(value: Float, bounce: Float): Float {

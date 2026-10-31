@@ -3,31 +3,46 @@ package com.cxcboss.glassorb.overlay
 import android.view.MotionEvent
 import android.view.View
 
+internal data class SystemAssistantWindowEvent(
+    val packageName: String,
+    val visible: Boolean,
+    val eventType: Int,
+    val windowChanges: Int,
+)
+
 /**
  * Process-local bridge between the foreground overlay and the explicitly
  * enabled accessibility service. The service is used only for the trusted
- * status-bar touch window; it does not inspect accessibility content.
+ * status-bar touch window and a small package-filtered assistant lifecycle
+ * signal; it does not inspect accessibility content.
  */
 internal object AccessibilityOverlayBridge {
     private var service: GlassOrbAccessibilityService? = null
     private var touchHandler: ((View, MotionEvent) -> Boolean)? = null
     private var boundsProvider: (() -> IntRect?)? = null
     private var connectionChanged: (() -> Unit)? = null
+    private var assistantWindowChanged: ((SystemAssistantWindowEvent) -> Unit)? = null
+    private var lastAssistantWindowEvent: SystemAssistantWindowEvent? = null
 
     @Synchronized
     fun attachController(
         handler: (View, MotionEvent) -> Boolean,
         provider: () -> IntRect?,
         onConnectionChanged: () -> Unit,
+        onAssistantWindowChanged: (SystemAssistantWindowEvent) -> Unit,
     ) {
         touchHandler = handler
         boundsProvider = provider
         connectionChanged = onConnectionChanged
+        assistantWindowChanged = onAssistantWindowChanged
         service?.let { connected ->
             runCatching { connected.updateTouchBounds(provider()) }
                 .onFailure { /* The service must remain alive if a window is rebuilding. */ }
         }
         runCatching { onConnectionChanged() }
+        lastAssistantWindowEvent
+            ?.takeIf { it.visible }
+            ?.let { pending -> runCatching { onAssistantWindowChanged(pending) } }
     }
 
     @Synchronized
@@ -36,6 +51,7 @@ internal object AccessibilityOverlayBridge {
         touchHandler = null
         boundsProvider = null
         connectionChanged = null
+        assistantWindowChanged = null
     }
 
     @Synchronized
@@ -49,6 +65,7 @@ internal object AccessibilityOverlayBridge {
     fun disconnect(accessibilityService: GlassOrbAccessibilityService) {
         if (service === accessibilityService) {
             service = null
+            lastAssistantWindowEvent = null
             runCatching { connectionChanged?.invoke() }
         }
     }
@@ -67,4 +84,18 @@ internal object AccessibilityOverlayBridge {
     @Synchronized
     fun dispatchTouch(view: View, event: MotionEvent): Boolean =
         touchHandler?.invoke(view, event) ?: false
+
+    @Synchronized
+    fun notifyAssistantWindowChanged(event: SystemAssistantWindowEvent) {
+        lastAssistantWindowEvent = event
+        runCatching { assistantWindowChanged?.invoke(event) }
+    }
+
+    /** Replays a currently visible assistant after the overlay has created its view. */
+    @Synchronized
+    fun replayAssistantWindowState() {
+        lastAssistantWindowEvent
+            ?.takeIf { it.visible }
+            ?.let { pending -> runCatching { assistantWindowChanged?.invoke(pending) } }
+    }
 }

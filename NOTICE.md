@@ -18,15 +18,21 @@ Android 版 GLES 管线与动画行为参考上述固定提交，仅用于个人
 
 ## Settings UI reference
 
-The settings surface uses the official Material 3 Android Views (`material:1.14.0`)
-for toolbar, slider, switch, radio, text input and dialogs. AndroidLiquidGlass is
-retained only as an earlier design reference and is not bundled at runtime:
+The settings surface is an iOS 26 style Settings clone built from plain Android
+platform Views, with Liquid Glass chrome (navigation bar, back button, tab bar,
+toast, alert). It does not use Material Components or Jetpack Compose. Glass
+rendering is implemented in this repository with `RenderNode` + `RenderEffect`
+(API 31+) and a hand-written AGSL rim lens (API 33+); older devices fall back
+to a flat translucent tint.
+
+The optical and interaction ideas were informed by Kyant's Compose-only
+AndroidLiquidGlass project, which is kept as a design reference only:
 
 - https://github.com/Kyant0/AndroidLiquidGlass
 - Copyright Kyant and contributors
 - Licensed under the Apache License, Version 2.0
 
-This APK does not compile the reference repository's `LiquidButton`,
-`LiquidSlider`, `LiquidToggle`, `LiquidBottomTabs` or any of its drag/highlight
-source files, and does not link its published runtime artifacts. The glass-orb
-GLES renderer remains an independent port of the shader study above.
+No source file, shader or published artifact of that project is copied,
+compiled or linked into this APK. The glass-orb GLES renderer remains an
+independent port of the shader study above. Apple, iOS, SF Symbols and Siri
+are trademarks of Apple Inc.; no Apple fonts or symbols are bundled.

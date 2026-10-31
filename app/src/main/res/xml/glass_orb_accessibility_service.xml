@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The framework requires an event filter for this service declaration. It
-     is restricted to this app and the service never reads those events. -->
+<!-- TYPE_WINDOWS_CHANGED is a system window event. Android only delivers it
+     when the service opts into interactive-window metadata. The implementation
+     reads only package/class metadata for a small allowlist; it never traverses
+     text, takes screenshots, performs gestures, or records audio. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/accessibility_service_description"
-    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged|typeWindowContentChanged"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows"
     android:accessibilityFeedbackType="feedbackGeneric"
-    android:packageNames="com.cxcboss.glassorb"
     android:notificationTimeout="100"
-    android:canRetrieveWindowContent="false"
+    android:canRetrieveWindowContent="true"
     android:canRequestFilterKeyEvents="false"
     android:canPerformGestures="false"
     android:canRequestTouchExplorationMode="false"

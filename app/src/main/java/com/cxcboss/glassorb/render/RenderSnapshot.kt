@@ -19,7 +19,7 @@ object RenderTransition {
     }
 }
 
-data class RenderSnapshot(
+internal data class RenderSnapshot(
     val config: OrbConfig,
     val state: OverlayState,
     val springProgress: Float,
@@ -27,6 +27,7 @@ data class RenderSnapshot(
     val collapsePull: Float = 0f,
     val collapseVelocityDpPerSecond: Float = 0f,
     val collapseDirection: Int = 0,
+    val collapseFlightOffsetPx: Float = 0f,
     val collapseRebound: Float = 0f,
     val collapseSecondaryRebound: Float = 0f,
     val collapseEffectsFrozen: Boolean = false,
@@ -44,4 +45,12 @@ data class RenderSnapshot(
     val viewportHeight: Int = 0,
     val presentationToken: Long = 0L,
     val capsuleOutline: Boolean = false,
+    val fullscreenCapsuleScale: Float = 1f,
+    val fullscreenCapsuleSquareProgress: Float = 0f,
+    val fullscreenCapsuleOpacity: Float = 1f,
+    /** Display/layout and shape context captured for this exact presentation frame. */
+    // Set once on the producer thread before publication to the GL thread.
+    // Keeping the snapshot itself as a single allocation matters at 120Hz;
+    // the frame object remains immutable after this construction step.
+    internal var presentationFrame: RenderPresentationFrame? = null,
 )

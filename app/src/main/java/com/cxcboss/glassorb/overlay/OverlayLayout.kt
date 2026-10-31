@@ -15,13 +15,65 @@ data class IntRect(
     val height: Int get() = bottom - top
 }
 
+data class ExpandedFrameGeometry(
+    val bounds: IntRect,
+    val visualBottomPx: Int,
+)
+
+/** All geometry needed to present one frame consistently across surfaces. */
+data class PresentationGeometry(
+    val display: RotationDisplayGeometry,
+    val expandedFrame: ExpandedFrameGeometry,
+)
+
 object OverlayLayout {
     const val WINDOW_TOP_PADDING_DP = 0f
+
+    fun presentationSnapshot(
+        geometry: GeometryConfig,
+        display: RotationDisplayGeometry,
+        density: Float,
+    ): PresentationGeometry = PresentationGeometry(
+        display = display,
+        expandedFrame = expandedFrame(geometry, display, density),
+    )
+
+    /**
+     * Selects the display-safe rectangle while keeping the island in its
+     * portrait/top-anchor coordinate convention. Android reports window
+     * bounds in the current display rotation; in landscape the navigation
+     * inset is on a physical side, but it must not become the island's new
+     * horizontal origin. The island therefore uses the full rotated display
+     * width and only reserves the bottom system inset.
+     */
+    fun safeBoundsForDisplay(
+        displayBounds: IntRect,
+        systemInsets: IntRect,
+        landscape: Boolean,
+    ): IntRect {
+        return IntRect(
+            left = if (landscape) displayBounds.left else displayBounds.left + systemInsets.left,
+            top = displayBounds.top,
+            right = if (landscape) displayBounds.right else displayBounds.right - systemInsets.right,
+            bottom = displayBounds.bottom - systemInsets.bottom,
+        )
+    }
 
     fun collapsedBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {
         val width = max(geometry.capsuleWidthDp, MIN_TOUCH_DP).dpToPx(density)
         val height = max(geometry.capsuleHeightDp, MIN_TOUCH_DP).dpToPx(density)
         return placedBounds(width, height, geometry, safeBoundsPx, density)
+    }
+
+    fun collapsedBounds(
+        geometry: GeometryConfig,
+        display: RotationDisplayGeometry,
+        density: Float,
+    ): IntRect {
+        val portrait = RotationCoordinateSpace.portraitDisplay(display)
+        return RotationCoordinateSpace.mapPortraitRect(
+            collapsedBounds(geometry, portrait.safeBounds, density), display.physicalBounds, display.rotation,
+        )
     }
 
     fun capsuleTouchBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect {
@@ -49,12 +101,67 @@ object OverlayLayout {
         return IntRect(left, top, left + width, top + height)
     }
 
+    fun capsuleTouchBounds(
+        geometry: GeometryConfig,
+        display: RotationDisplayGeometry,
+        density: Float,
+    ): IntRect {
+        if (display.rotation != 0) return RotationCoordinateSpace.mapPortraitRect(
+            capsuleTouchBounds(geometry, RotationCoordinateSpace.portraitDisplay(display), density),
+            display.physicalBounds, display.rotation,
+        )
+        val scale = if (geometry.enlargedTouchArea) geometry.touchAreaScale else 1f
+        val visual = collapsedBounds(geometry, display, density)
+        if (scale <= 1f) return visual
+        val width = (visual.width * scale).roundToInt()
+            .coerceAtLeast(visual.width)
+            .coerceAtMost(display.safeBounds.width.coerceAtLeast(1))
+        val height = (visual.height * scale).roundToInt()
+            .coerceAtLeast(visual.height)
+            .coerceAtMost(display.safeBounds.height.coerceAtLeast(1))
+        return RotationCoordinateSpace.placeAxisAligned(
+            center = FloatPoint(
+                (visual.left + visual.right) * 0.5f,
+                (visual.top + visual.bottom) * 0.5f,
+            ),
+            width = width,
+            height = height,
+            safeBounds = display.safeBounds,
+        )
+    }
+
     fun orbTouchBounds(geometry: GeometryConfig, safeBoundsPx: IntRect, density: Float): IntRect =
         placedBounds(
-            geometry.orbDiameterDp.dpToPx(density),
-            geometry.orbDiameterDp.dpToPx(density),
+            geometry.orbWidthDp.dpToPx(density),
+            geometry.orbHeightDp.dpToPx(density),
             geometry, safeBoundsPx, density,
         )
+
+    fun orbTouchBounds(
+        geometry: GeometryConfig,
+        display: RotationDisplayGeometry,
+        density: Float,
+    ): IntRect {
+        if (display.rotation != 0) return RotationCoordinateSpace.mapPortraitRect(
+            orbTouchBounds(geometry, RotationCoordinateSpace.portraitDisplay(display), density),
+            display.physicalBounds, display.rotation,
+        )
+        val capsule = collapsedBounds(geometry, display, density)
+        val top = capsule.top + if (geometry.expandBelowCapsule) {
+            geometry.capsuleHeightDp.dpToPx(density) + EXPAND_BELOW_GAP_PX.roundToInt()
+        } else {
+            0
+        }
+        return RotationCoordinateSpace.placeAxisAligned(
+            center = FloatPoint(
+                (capsule.left + capsule.right) * 0.5f,
+                top + geometry.orbHeightDp.dpToPx(density) * 0.5f,
+            ),
+            width = geometry.orbWidthDp.dpToPx(density),
+            height = geometry.orbHeightDp.dpToPx(density),
+            safeBounds = display.safeBounds,
+        )
+    }
 
     /**
      * Application overlays are below the status-bar window for input. A window
@@ -95,6 +202,58 @@ object OverlayLayout {
         return if (topRoom == 0) placed else placed.copy(top = placed.top - topRoom)
     }
 
+    fun expandedBounds(
+        geometry: GeometryConfig,
+        display: RotationDisplayGeometry,
+        density: Float,
+    ): IntRect = expandedFrame(geometry, display, density).bounds
+
+    fun expandedFrame(
+        geometry: GeometryConfig,
+        display: RotationDisplayGeometry,
+        density: Float,
+    ): ExpandedFrameGeometry {
+        if (display.rotation != 0) {
+            val portrait = expandedFrame(geometry, RotationCoordinateSpace.portraitDisplay(display), density)
+            val bounds = RotationCoordinateSpace.mapPortraitRect(portrait.bounds, display.physicalBounds, display.rotation)
+            return ExpandedFrameGeometry(bounds, bounds.bottom)
+        }
+        val visualSizeDp = expandedCanvasDp(geometry)
+        val size = max(visualSizeDp, MIN_TOUCH_DP).dpToPx(density)
+        val dropDp = if (geometry.expandBelowCapsule) {
+            geometry.capsuleHeightDp + EXPAND_BELOW_GAP_PX / density
+        } else {
+            0f
+        }
+        val height = (visualSizeDp + dropDp).dpToPx(density)
+        val collapsed = collapsedBounds(geometry, display, density)
+        val placed = RotationCoordinateSpace.placeAxisAligned(
+            center = FloatPoint(
+                (collapsed.left + collapsed.right) * 0.5f,
+                collapsed.top + height * 0.5f,
+            ),
+            width = size,
+            height = height,
+            safeBounds = display.safeBounds,
+        )
+        val topRoom = EXPAND_REBOUND_TOP_MARGIN_PX.roundToInt()
+            .coerceAtMost((placed.top - display.safeBounds.top).coerceAtLeast(0))
+        val bounds = if (topRoom == 0) placed else placed.copy(top = placed.top - topRoom)
+        val orbTopPx = collapsed.top + geometry.capsuleHeightDp.dpToPx(density) +
+            if (geometry.expandBelowCapsule) EXPAND_BELOW_GAP_PX.roundToInt() else 0
+        val orbExtentDp = maxOf(
+            geometry.orbWidthDp,
+            geometry.orbHeightDp,
+            geometry.orbWidthDp * geometry.effectScale,
+            geometry.orbHeightDp * geometry.effectScale,
+        ) + geometry.outerMarginDp
+        return ExpandedFrameGeometry(
+            bounds = bounds,
+            visualBottomPx = (orbTopPx + orbExtentDp.dpToPx(density))
+                .coerceIn(bounds.top, bounds.bottom),
+        )
+    }
+
     const val EXPAND_BELOW_GAP_PX = 20f
     private const val EXPAND_REBOUND_TOP_MARGIN_PX = 24f
 
@@ -105,15 +264,23 @@ object OverlayLayout {
         val orbTopPx = capsule.top + capsuleVisualHeightPx +
             if (geometry.expandBelowCapsule) EXPAND_BELOW_GAP_PX.roundToInt() else 0
         val orbExtentDp = maxOf(
-            geometry.orbDiameterDp,
-            geometry.orbDiameterDp * geometry.effectScale,
+            geometry.orbWidthDp,
+            geometry.orbHeightDp,
+            geometry.orbWidthDp * geometry.effectScale,
+            geometry.orbHeightDp * geometry.effectScale,
         ) + geometry.outerMarginDp
         return orbTopPx + orbExtentDp.dpToPx(density)
     }
 
+    fun expandedVisualBottomPx(
+        geometry: GeometryConfig,
+        display: RotationDisplayGeometry,
+        density: Float,
+    ): Int = expandedFrame(geometry, display, density).visualBottomPx
+
     fun expandedCanvasDp(geometry: GeometryConfig): Float = maxOf(
-        geometry.orbDiameterDp * geometry.effectScale,
-        maxOf(geometry.orbDiameterDp, geometry.capsuleWidthDp, geometry.capsuleHeightDp) * 1.28f,
+        maxOf(geometry.orbWidthDp, geometry.orbHeightDp) * geometry.effectScale,
+        maxOf(geometry.orbWidthDp, geometry.orbHeightDp, geometry.capsuleWidthDp, geometry.capsuleHeightDp) * 1.28f,
     ) + geometry.outerMarginDp * 2f
 
     fun renderScale(geometry: GeometryConfig, width: Int, height: Int, density: Float, morph: Float): Float {

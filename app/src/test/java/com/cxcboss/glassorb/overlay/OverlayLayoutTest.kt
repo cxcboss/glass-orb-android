@@ -54,7 +54,7 @@ class OverlayLayoutTest {
     }
 
     @Test
-    fun `collapsed touch window includes a minimum forty eight dp hit target`() {
+    fun `collapsed touch window includes a minimum thirty eight dp hit target`() {
         val safe = IntRect(left = 0, top = 72, right = 1080, bottom = 2280)
 
         val bounds = OverlayLayout.collapsedBounds(
@@ -63,7 +63,7 @@ class OverlayLayoutTest {
             density = 3f,
         )
 
-        assertEquals(144, bounds.height)
+        assertEquals(114, bounds.height)
         assertEquals(270, bounds.width)
     }
 
@@ -86,6 +86,38 @@ class OverlayLayoutTest {
 
         assertEquals(portraitAnchor.topDp, landscapeAnchor.topDp, 0.0001f)
         assertEquals(portraitAnchor.centerXDp, landscapeAnchor.centerXDp, 0.0001f)
+    }
+
+    @Test
+    fun `landscape portrait lock always ignores side insets`() {
+        val display = IntRect(left = 0, top = 0, right = 2280, bottom = 1080)
+        val insets = IntRect(left = 96, top = 0, right = 96, bottom = 24)
+
+        val safe = OverlayLayout.safeBoundsForDisplay(
+            displayBounds = display,
+            systemInsets = insets,
+            landscape = true,
+        )
+
+        assertEquals(0, safe.left)
+        assertEquals(2280, safe.right)
+        assertEquals(1056, safe.bottom)
+    }
+
+    @Test
+    fun `portrait safe bounds still respect horizontal insets`() {
+        val display = IntRect(left = 0, top = 0, right = 2280, bottom = 1080)
+        val insets = IntRect(left = 96, top = 0, right = 96, bottom = 24)
+
+        val safe = OverlayLayout.safeBoundsForDisplay(
+            displayBounds = display,
+            systemInsets = insets,
+            landscape = false,
+        )
+
+        assertEquals(96, safe.left)
+        assertEquals(2184, safe.right)
+        assertEquals(1056, safe.bottom)
     }
 
     @Test
@@ -139,5 +171,18 @@ class OverlayLayoutTest {
         assertEquals(visual.top + visual.height / 2f, touch.top + touch.height / 2f, 1f)
         assertTrue(touch.width >= visual.width)
         assertTrue(touch.height >= visual.height)
+    }
+
+    @Test
+    fun `orb touch bounds follow the configured ellipse dimensions`() {
+        val safe = IntRect(left = 0, top = 0, right = 1080, bottom = 2280)
+        val bounds = OverlayLayout.orbTouchBounds(
+            geometry = GeometryConfig(orbWidthDp = 160f, orbHeightDp = 96f),
+            safeBoundsPx = safe,
+            density = 2f,
+        )
+
+        assertEquals(320, bounds.width)
+        assertEquals(192, bounds.height)
     }
 }

@@ -1,53 +1,76 @@
 package com.cxcboss.glassorb.ui
 
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
+import android.graphics.Typeface
 import android.net.Uri
-import android.os.Build
-import android.text.InputType
-import android.util.TypedValue
+import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
-import androidx.core.content.ContextCompat
 import androidx.activity.BackEventCompat
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
 import com.cxcboss.glassorb.BuildConfig
+import com.cxcboss.glassorb.R
 import com.cxcboss.glassorb.data.ConfigGroup
-import com.cxcboss.glassorb.data.ConfigPreset
 import com.cxcboss.glassorb.model.HorizontalAnchor
 import com.cxcboss.glassorb.model.OrbConfig
 import com.cxcboss.glassorb.overlay.OrbOverlayService
 import com.cxcboss.glassorb.overlay.OverlayRuntime
 import com.cxcboss.glassorb.overlay.OverlayRuntimeStatus
-import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.materialswitch.MaterialSwitch
-import com.google.android.material.radiobutton.MaterialRadioButton
-import com.google.android.material.slider.Slider
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
+import com.cxcboss.glassorb.ui.glass.BackdropHostLayout
+import com.cxcboss.glassorb.ui.glass.GlassAlert
+import com.cxcboss.glassorb.ui.glass.GlassBackdrop
+import com.cxcboss.glassorb.ui.glass.GlassContextMenu
+import com.cxcboss.glassorb.ui.glass.GlassNavBar
+import com.cxcboss.glassorb.ui.glass.GlassSearchBar
+import com.cxcboss.glassorb.ui.glass.LiquidGlassView
+import com.cxcboss.glassorb.ui.ios.IosPalette
+import com.cxcboss.glassorb.ui.ios.IosRows
+import com.cxcboss.glassorb.ui.ios.IosTint
+import com.cxcboss.glassorb.ui.ios.RowHandle
+import com.cxcboss.glassorb.ui.ios.RowIcon
+import com.cxcboss.glassorb.ui.ios.dp
+import com.cxcboss.glassorb.ui.ios.dpF
+import com.cxcboss.glassorb.ui.ios.setRowEnabled
 import java.util.ArrayDeque
-import java.util.Locale
-import kotlin.math.roundToInt
 
 private fun ConfigGroup.title(): String = when (this) {
-    ConfigGroup.Geometry -> "尺寸、位置与触控"
-    ConfigGroup.Glass -> "玻璃质感"
+    ConfigGroup.Geometry -> "位置与触控"
+    ConfigGroup.Glass -> "颜色与光影"
     ConfigGroup.Container -> "背景与暗部"
-    ConfigGroup.Wave -> "波形"
-    ConfigGroup.Dots -> "思考圆点"
-    ConfigGroup.Motion -> "手势与动画"
-    ConfigGroup.Performance -> "性能"
+    ConfigGroup.Wave -> "波形与光带"
+    ConfigGroup.Dots -> "圆点与粒子"
+    ConfigGroup.Motion -> "手势与动效"
+    ConfigGroup.Performance -> "性能与清晰度"
+}
+
+private fun ConfigGroup.icon(): RowIcon = when (this) {
+    ConfigGroup.Geometry -> RowIcon(R.drawable.ic_category_geometry, IosTint.Blue)
+    ConfigGroup.Glass -> RowIcon(R.drawable.ic_category_colors, IosTint.Orange)
+    ConfigGroup.Container -> RowIcon(R.drawable.ic_category_container, IosTint.Indigo)
+    ConfigGroup.Wave -> RowIcon(R.drawable.ic_category_wave, IosTint.Teal)
+    ConfigGroup.Dots -> RowIcon(R.drawable.ic_category_dots, IosTint.Purple)
+    ConfigGroup.Motion -> RowIcon(R.drawable.ic_category_motion, IosTint.Green)
+    ConfigGroup.Performance -> RowIcon(R.drawable.ic_category_performance, IosTint.Pink)
+}
+
+private fun ConfigGroup.description(): String = when (this) {
+    ConfigGroup.Geometry -> "调整灵动岛与玻璃球的尺寸、位置、显示时机和触控范围。"
+    ConfigGroup.Glass -> "调整玻璃的深度、曲率、高光、动态颜色、阴影与焦散。"
+    ConfigGroup.Container -> "设置展开时的下层模糊、下层变暗、玻璃球模糊和球体暗部。"
+    ConfigGroup.Wave -> "调整玻璃球内部波形的振幅、色散、线宽与辉光。"
+    ConfigGroup.Dots -> "调整思考状态下环形圆点的大小、辉光与转速。"
+    ConfigGroup.Motion -> "调整展开、收起、拖动形变、呼吸和自动收起的手感。"
+    ConfigGroup.Performance -> "调整渲染清晰度。展开、收起与玻璃球始终按 120 fps 请求刷新。"
 }
 
 internal data class NativeSettingsCallbacks(
@@ -58,95 +81,206 @@ internal data class NativeSettingsCallbacks(
     val hideOverlay: () -> Unit,
     val stopOverlay: () -> Unit,
     val updateConfig: (OrbConfig) -> Unit,
-    val applyPreset: (ConfigPreset) -> Unit,
     val resetGroup: (ConfigGroup) -> Unit,
-    val resetAll: () -> Unit,
-    val exportJson: () -> String,
-    val importJson: (String, (Result<OrbConfig>) -> Unit) -> Unit,
+    val setAutoStartEnabled: (Boolean) -> Unit,
 )
 
 /**
- * Native Android settings surface. Layout remains ordinary Android Views while
- * interactive controls use the official Material 3 View implementations. No
- * app-specific imitation of sliders, switches or dialogs is used here.
+ * iOS 26 Settings, rebuilt from plain Android Views.
+ *
+ * Structure follows the real Settings app: a root list titled 设置 with an
+ * account-style card, icon rows without subtitles and a floating Liquid Glass
+ * search capsule at the bottom; second-level pages open with an icon/title/
+ * description header card and an inline title that appears once it scrolls
+ * away. Chrome (scroll-edge navigation bar, glass back button, search bar,
+ * context menu) sits beside the [BackdropHostLayout] it refracts, never inside.
+ * Status-driven rows update in place through [Page.refreshers].
  */
 internal class NativeSettingsController(
-    private val activity: MainActivity,
+    private val activity: ComponentActivity,
     private val root: FrameLayout,
     private val callbacks: NativeSettingsCallbacks,
+    private val initialScreenKey: String? = null,
+    private val onRootBack: (() -> Unit)? = null,
 ) {
     private sealed interface Screen {
         data object Home : Screen
         data object Overlay : Screen
         data class Group(val group: ConfigGroup) : Screen
-        data object Presets : Screen
-        data object Data : Screen
         data object About : Screen
         data object Licenses : Screen
     }
 
-    private enum class ParameterId { TouchAreaScale }
+    private class Page(val screen: Screen, val scroll: ScrollView, val column: LinearLayout) {
+        /** Re-applies runtime state (switch positions, status text) without rebuilding the page. */
+        val refreshers = ArrayList<() -> Unit>()
+        var navTitle: String = ""
+        var titleFromPx = 0f
+        var titleToPx = 1f
+        var mainContent: LinearLayout? = null
+        var searchContent: LinearLayout? = null
+    }
 
-    private data class PageEntry(
-        val screen: Screen,
-        val view: View,
-    )
+    private data class SearchEntry(val title: String, val screen: Screen, val pageTitle: String)
 
     private val density = activity.resources.displayMetrics.density
-    private val pages = ArrayDeque<PageEntry>()
-    private var sliderTracking = false
+    private val palette = IosPalette.of(activity)
+    private val text = SettingsText(activity)
+    private val rows = IosRows(activity, palette, text::tr)
+    private val refreshRateController = SettingsRefreshRateController(activity)
+    private val pages = ArrayDeque<Page>()
+    private val host = BackdropHostLayout(activity)
+    private val backdrop = GlassBackdrop(host).also { host.backdrop = it }
+    private val navBar: GlassNavBar
+    private val bottomEdge: LiquidGlassView
+    private val searchBar: GlassSearchBar
+    private val contextMenu: GlassContextMenu
+    private var searchIndex: List<SearchEntry>? = null
+    private var insetTop = 0
+    private var insetBottom = 0
+    private var insetIme = 0
     private var refreshAfterConfigFor: Screen? = null
     private var navigationAnimating = false
     private var config: OrbConfig = OrbConfig.reference()
     private var runtimeStatus: OverlayRuntimeStatus = OverlayRuntimeStatus.Stopped
     private var overlayPermission: Boolean = false
     private var accessibilityEnabled: Boolean = false
+    private var autoStartEnabled: Boolean = false
     var onBackAvailabilityChanged: ((Boolean) -> Unit)? = null
-    val canGoBack: Boolean get() = pages.size > 1
+
+    /** True while back should be handled here: a pushed page, active search or an open menu. */
+    val canGoBack: Boolean get() = pages.size > 1 || searchBar.active || contextMenu.isShowing
     private var predictiveBack = false
     private var backDirection = 1f
 
     init {
-        root.setBackgroundColor(themeColor(android.R.attr.colorBackground))
+        val state = activity.savedStateRegistry.consumeRestoredStateForKey(SAVED_STATE_KEY)
+        activity.savedStateRegistry.registerSavedStateProvider(SAVED_STATE_KEY) {
+            Bundle().apply {
+                putString(KEY_SCREEN, screenKey(pages.peekLast()?.screen ?: Screen.Home))
+                putInt(KEY_SCROLL_Y, pages.peekLast()?.scroll?.scrollY ?: 0)
+            }
+        }
+        activity.lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onDestroy(owner: LifecycleOwner) = refreshRateController.dispose()
+        })
+
+        root.setBackgroundColor(palette.groupedBackground)
+        host.setBackgroundColor(palette.groupedBackground)
+        root.addView(host, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        navBar = GlassNavBar(activity, palette, backdrop) { goBack() }.apply {
+            setBackDescription(ui("返回"))
+        }
+        root.addView(navBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, navBar.barHeightPx))
+        bottomEdge = LiquidGlassView(activity, palette).apply {
+            backdrop = this@NativeSettingsController.backdrop
+            cornerRadiusPx = 0f
+            blurDp = 10f
+            lensDp = 0f
+            rimEnabled = false
+            shadowEnabled = false
+            sheenEnabled = false
+            edgeFade = LiquidGlassView.EDGE_BOTTOM
+            edgeFadeLengthPx = dp(44f).toFloat()
+            tintOverride = (palette.groupedBackground and 0x00FFFFFF) or (0xB3 shl 24)
+        }
+        root.addView(bottomEdge, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(BOTTOM_EDGE_DP), Gravity.BOTTOM,
+        ))
+        searchBar = GlassSearchBar(
+            context = activity,
+            palette = palette,
+            backdrop = backdrop,
+            hint = ui("搜索"),
+            closeDescription = ui("取消"),
+            onQueryChanged = ::renderSearch,
+            onActiveChanged = ::onSearchActiveChanged,
+        )
+        root.addView(searchBar, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM,
+        ).apply {
+            leftMargin = dp(16f - GlassSearchBar.INSET_DP)
+            rightMargin = dp(16f - GlassSearchBar.INSET_DP)
+            bottomMargin = dp(SEARCH_MARGIN_DP)
+        })
+        contextMenu = GlassContextMenu(root, palette, backdrop)
+        rows.sliderResetPresenter = { anchor, label, defaultText, reset ->
+            contextMenu.show(anchor, label, ui("恢复默认值"), String.format(ui("默认值：%s"), defaultText), reset)
+            onBackAvailabilityChanged?.invoke(canGoBack)
+        }
+
         addInitialPage()
+        restoreTopPage(state)
+        syncChrome(animated = false)
+    }
+
+    // region External state
+
+    fun applyInsets(top: Int, bottom: Int, ime: Int = 0) {
+        insetTop = top
+        insetBottom = bottom
+        insetIme = ime
+        navBar.setTopInset(top)
+        (searchBar.layoutParams as? FrameLayout.LayoutParams)?.let {
+            it.bottomMargin = maxOf(bottom, ime) + dp(SEARCH_MARGIN_DP)
+            searchBar.layoutParams = it
+        }
+        (bottomEdge.layoutParams as? FrameLayout.LayoutParams)?.let {
+            it.height = maxOf(bottom, ime) + dp(BOTTOM_EDGE_DP)
+            bottomEdge.layoutParams = it
+        }
+        pages.forEach { applyPagePadding(it) }
     }
 
     fun updateConfig(value: OrbConfig) {
         val changed = config != value
         config = value
-        // Do not rebuild the active page for ordinary slider samples: it would
-        // steal the gesture. Explicit reset/import actions request one refresh.
-        if (changed && !sliderTracking) {
+        // Controls own their visual state while the user drags them. Only an
+        // explicit bulk change (group reset) asks the visible page to rebuild.
+        val refreshScreen = refreshAfterConfigFor
+        if (changed && refreshScreen != null) {
             refreshAfterConfigFor = null
-            refreshCurrentPage()
+            if (refreshScreen == currentScreen()) refreshCurrentPage()
         }
     }
 
     fun updateRuntimeStatus(value: OverlayRuntimeStatus) {
         if (runtimeStatus == value) return
         runtimeStatus = value
-        if (currentScreen() is Screen.Home || currentScreen() is Screen.Overlay) refreshCurrentPage()
+        runRefreshers()
     }
 
     fun updateOverlayPermission(value: Boolean) {
         if (overlayPermission == value) return
         overlayPermission = value
-        if (currentScreen() is Screen.Home || currentScreen() is Screen.Overlay) refreshCurrentPage()
+        runRefreshers()
     }
 
     fun updateAccessibilityEnabled(value: Boolean) {
         if (accessibilityEnabled == value) return
         accessibilityEnabled = value
-        if (currentScreen() is Screen.Overlay) refreshCurrentPage()
+        runRefreshers()
     }
+
+    fun updateAutoStartEnabled(value: Boolean) {
+        if (autoStartEnabled == value) return
+        autoStartEnabled = value
+        runRefreshers()
+    }
+
+    private fun runRefreshers() {
+        pages.forEach { page -> page.refreshers.forEach { refresh -> refresh() } }
+    }
+
+    // endregion
+
+    // region Navigation
 
     fun navigate(screen: Any) {
         val target = when (screen) {
             is ConfigGroup -> Screen.Group(screen)
             is String -> when (screen) {
                 "overlay" -> Screen.Overlay
-                "presets" -> Screen.Presets
-                "data" -> Screen.Data
                 "about" -> Screen.About
                 "licenses" -> Screen.Licenses
                 else -> Screen.Home
@@ -154,55 +288,88 @@ internal class NativeSettingsController(
             else -> Screen.Home
         }
         if (currentScreen() == target || navigationAnimating) return
+        val below = pages.peekLast()
         val page = createPage(target)
-        root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        pages.addLast(PageEntry(target, page))
+        host.addView(page.scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        pages.addLast(page)
         onBackAvailabilityChanged?.invoke(canGoBack)
-        page.translationX = (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels).toFloat()
+        val width = rootWidth()
+        page.scroll.translationX = width
+        syncChrome(animated = true)
         navigationAnimating = true
-        page.animate()
+        below?.scroll?.animate()?.translationX(-width * PARALLAX)?.setDuration(PAGE_NAVIGATION_DURATION_MS)
+            ?.setInterpolator(EASE)?.start()
+        page.scroll.animate()
             .translationX(0f)
-            .setDuration(300L)
-            .setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f))
-            .withEndAction { navigationAnimating = false }
+            .setDuration(PAGE_NAVIGATION_DURATION_MS)
+            .setInterpolator(EASE)
+            .withEndAction {
+                // A covered page costs nothing to draw or to capture for glass.
+                below?.scroll?.visibility = View.INVISIBLE
+                navigationAnimating = false
+            }
             .start()
     }
 
     fun goBack(): Boolean {
-        if (pages.size <= 1) return false
-        // Keep the previous page mounted and untouched. This preserves scroll
-        // position and slider progress while the top page animates away.
+        if (contextMenu.isShowing) {
+            contextMenu.dismiss()
+            onBackAvailabilityChanged?.invoke(canGoBack)
+            return true
+        }
+        if (searchBar.active) {
+            searchBar.deactivate()
+            return true
+        }
+        if (pages.size <= 1) {
+            onRootBack?.invoke()
+            return onRootBack != null
+        }
+        // The previous page stays mounted, so scroll position and slider state
+        // survive the round trip.
         if (navigationAnimating) return true
         val leaving = pages.peekLast() ?: return false
-        val distance = (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels).toFloat() *
-            if (predictiveBack) backDirection else 1f
+        val previous = pages.toList().getOrNull(pages.size - 2)
+        val width = rootWidth()
+        val distance = width * if (predictiveBack) backDirection else 1f
         predictiveBack = false
         navigationAnimating = true
-        leaving.view.animate()
+        previous?.scroll?.let { scroll ->
+            scroll.visibility = View.VISIBLE
+            scroll.animate().translationX(0f).setDuration(PAGE_NAVIGATION_DURATION_MS).setInterpolator(EASE).start()
+        }
+        // Chrome follows the page that is becoming visible immediately.
+        pages.removeLast()
+        syncChrome(animated = true)
+        pages.addLast(leaving)
+        leaving.scroll.animate()
             .translationX(distance)
-            .setDuration(300L)
-            .setInterpolator(PathInterpolator(0.2f, 0f, 0f, 1f))
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(PAGE_NAVIGATION_DURATION_MS)
+            .setInterpolator(EASE)
             .withEndAction {
                 if (pages.peekLast() === leaving) {
                     pages.removeLast()
-                    root.removeView(leaving.view)
+                    host.removeView(leaving.scroll)
                     onBackAvailabilityChanged?.invoke(canGoBack)
                 }
                 navigationAnimating = false
+                syncChrome(animated = false)
             }
             .start()
         return true
     }
 
     fun startPredictiveBack(event: BackEventCompat) {
-        if (!canGoBack || navigationAnimating) return
+        if (pages.size <= 1 || navigationAnimating || searchBar.active || contextMenu.isShowing) return
         predictiveBack = true
         backDirection = if (event.swipeEdge == BackEventCompat.EDGE_LEFT) 1f else -1f
     }
 
     fun progressPredictiveBack(event: BackEventCompat) {
         if (!predictiveBack) return
-        val page = pages.peekLast()?.view ?: return
+        val page = pages.peekLast()?.scroll ?: return
         val progress = event.progress.coerceIn(0f, 1f)
         page.pivotX = page.width / 2f
         page.pivotY = page.height / 2f
@@ -215,27 +382,48 @@ internal class NativeSettingsController(
         if (!predictiveBack) return
         predictiveBack = false
         navigationAnimating = true
-        pages.peekLast()?.view?.animate()?.translationX(0f)?.scaleX(1f)?.scaleY(1f)
+        pages.peekLast()?.scroll?.animate()?.translationX(0f)?.scaleX(1f)?.scaleY(1f)
             ?.setDuration(180L)?.withEndAction { navigationAnimating = false }?.start()
     }
 
+    private fun rootWidth(): Float = (root.width.takeIf { it > 0 } ?: activity.resources.displayMetrics.widthPixels).toFloat()
+
     private fun addInitialPage() {
-        val page = createPage(Screen.Home)
-        root.addView(page, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        pages.addLast(PageEntry(Screen.Home, page))
+        val initial = decodeScreen(initialScreenKey) ?: Screen.Home
+        val page = createPage(initial)
+        host.addView(page.scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        pages.addLast(page)
+    }
+
+    private fun restoreTopPage(state: Bundle?) {
+        val restored = decodeScreen(state?.getString(KEY_SCREEN)) ?: return
+        val scrollY = state?.getInt(KEY_SCROLL_Y, 0) ?: 0
+        if (restored == currentScreen()) {
+            pages.peekLast()?.scroll?.let { scroll -> scroll.post { scroll.scrollTo(0, scrollY) } }
+            return
+        }
+        if (currentScreen() != Screen.Home) return
+        val below = pages.peekLast()
+        val page = createPage(restored)
+        host.addView(page.scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        pages.addLast(page)
+        below?.scroll?.visibility = View.INVISIBLE
+        page.scroll.post { page.scroll.scrollTo(0, scrollY) }
+        onBackAvailabilityChanged?.invoke(canGoBack)
     }
 
     private fun refreshCurrentPage() {
         if (predictiveBack) return
         val current = pages.pollLast() ?: return
-        val scrollY = (current.view as? ViewGroup)?.getChildAt(1)?.scrollY ?: 0
-        current.view.animate().cancel()
+        val scrollY = current.scroll.scrollY
+        current.scroll.animate().cancel()
         navigationAnimating = false
         val replacement = createPage(current.screen)
-        root.removeView(current.view)
-        root.addView(replacement, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        pages.addLast(PageEntry(current.screen, replacement))
-        (replacement as? ViewGroup)?.getChildAt(1)?.let { scroll -> scroll.post { scroll.scrollTo(0, scrollY) } }
+        host.removeView(current.scroll)
+        host.addView(replacement.scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        pages.addLast(replacement)
+        replacement.scroll.post { replacement.scroll.scrollTo(0, scrollY) }
+        syncChrome(animated = false)
     }
 
     private fun currentScreen(): Screen = pages.peekLast()?.screen ?: Screen.Home
@@ -244,119 +432,285 @@ internal class NativeSettingsController(
         refreshAfterConfigFor = currentScreen()
     }
 
-    private fun createPage(screen: Screen): View {
-        val page = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(themeColor(android.R.attr.colorBackground))
+    /** Points the persistent chrome at whichever page is on top. */
+    private fun syncChrome(animated: Boolean) {
+        val top = pages.peekLast() ?: return
+        navBar.setTitle(top.navTitle)
+        navBar.setBackVisible(pages.size > 1)
+        syncNavScroll(top)
+        val onRoot = top.screen == Screen.Home
+        if (!onRoot) searchBar.deactivate()
+        listOf<View>(searchBar, bottomEdge).forEach { view ->
+            view.isEnabled = onRoot
+            val offset = if (onRoot) 0f else dp(36f).toFloat()
+            if (animated) {
+                view.visibility = View.VISIBLE
+                view.animate().alpha(if (onRoot) 1f else 0f).translationY(offset)
+                    .setDuration(PAGE_NAVIGATION_DURATION_MS).setInterpolator(EASE)
+                    .withEndAction { if (pages.peekLast()?.screen != Screen.Home) view.visibility = View.INVISIBLE }
+                    .start()
+            } else {
+                view.animate().cancel()
+                view.alpha = if (onRoot) 1f else 0f
+                view.translationY = offset
+                view.visibility = if (onRoot) View.VISIBLE else View.INVISIBLE
+            }
         }
-        val toolbar = MaterialToolbar(activity).apply {
-            title = screenTitle(screen)
-            setTitleTextColor(themeColor(android.R.attr.textColorPrimary))
-            setBackgroundColor(themeColor(android.R.attr.colorBackground))
-            // Material 3 uses a flat app bar; the edge tint only appears while
-            // content scrolls beneath it, so do not add a permanent shadow.
-            elevation = 0f
-            minimumHeight = actionBarHeight()
-        }
-        if (screen !is Screen.Home) {
-            toolbar.navigationIcon = ContextCompat.getDrawable(activity, com.cxcboss.glassorb.R.drawable.ic_arrow_back)
-            toolbar.navigationContentDescription = "返回"
-            toolbar.setNavigationOnClickListener { goBack() }
-        }
-        page.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, actionBarHeight()))
+    }
 
+    private fun syncNavScroll(page: Page) {
+        val y = page.scroll.scrollY.toFloat()
+        val titleProgress = smoothStep(page.titleFromPx, page.titleToPx, y)
+        val edgeProgress = (y / dp(8f)).coerceIn(0f, 1f)
+        navBar.setScrollState(titleProgress, edgeProgress)
+    }
+
+    private fun smoothStep(from: Float, to: Float, value: Float): Float {
+        val t = ((value - from) / (to - from)).coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
+
+    // endregion
+
+    // region Pages
+
+    private fun createPage(screen: Screen): Page {
         val scroll = ScrollView(activity).apply {
-            isFillViewport = true
+            tag = "settings-scroll"
+            isVerticalScrollBarEnabled = false
             clipToPadding = false
-            setPadding(0, 0, 0, dp(24f))
-            addView(buildScreen(screen), ViewGroup.LayoutParams.MATCH_PARENT)
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         }
-        page.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        scroll.addView(column, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val page = Page(screen, scroll, column)
+        page.navTitle = ui(screenTitle(screen))
+        applyPagePadding(page)
+        refreshRateController.attach(scroll) {
+            if (pages.peekLast() === page) syncNavScroll(page)
+        }
+
+        when (screen) {
+            Screen.Home -> {
+                // Root: large title that collapses into the bar, like Settings.
+                column.addView(rows.largeTitle(screenTitle(screen)), matchWrap())
+                page.titleFromPx = dp(16f).toFloat()
+                page.titleToPx = dp(40f).toFloat()
+                buildRoot(page)
+            }
+            else -> {
+                // Second level: header card, inline title once it scrolls away.
+                page.titleFromPx = dp(84f).toFloat()
+                page.titleToPx = dp(124f).toFloat()
+                when (screen) {
+                    Screen.Overlay -> buildOverlayDetails(page)
+                    is Screen.Group -> buildGroupPage(page, screen.group)
+                    Screen.About -> buildAbout(page)
+                    Screen.Licenses -> buildLicenses(page)
+                    Screen.Home -> Unit
+                }
+            }
+        }
+        column.addView(View(activity), LinearLayout.LayoutParams(1, dp(28f)))
         return page
     }
 
-    private fun buildScreen(screen: Screen): View = when (screen) {
-        Screen.Home -> buildHome()
-        Screen.Overlay -> buildOverlayDetails()
-        is Screen.Group -> buildGroup(screen.group)
-        Screen.Presets -> buildPresets()
-        Screen.Data -> buildDataManagement()
-        Screen.About -> buildAbout()
-        Screen.Licenses -> buildLicenses()
+    private fun applyPagePadding(page: Page) {
+        val bottom = maxOf(insetBottom, insetIme) + if (page.screen == Screen.Home) dp(96f) else dp(28f)
+        page.scroll.setPadding(0, navBar.barHeightPx, 0, bottom)
     }
 
-    private fun buildHome(): View {
-        val content = column()
-        section(content, "运行") {
-            addSwitchRow(this, "显示灵动岛", nativeStatusLabel(runtimeStatus), runtimeStatus == OverlayRuntimeStatus.Visible) { enabled ->
-                when (resolveOverlayAction(enabled, overlayPermission, runtimeStatus)) {
+    private fun buildRoot(page: Page) {
+        val main = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val search = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        page.mainContent = main
+        page.searchContent = search
+        page.column.addView(main, matchWrap())
+        page.column.addView(search, matchWrap())
+
+        rows.profileCard(main, R.mipmap.ic_launcher, activity.getString(R.string.app_name), "版本、来源与开源许可") { navigate("about") }
+        main.section(null) {
+            val master = switchRow("显示灵动岛", null, runtimeStatus == OverlayRuntimeStatus.Visible, RowIcon(R.drawable.ic_orb, IosTint.Blue)) { enabled ->
+                val action = resolveOverlayAction(enabled, overlayPermission, runtimeStatus)
+                when (action) {
                     OverlayAction.RequestPermission -> callbacks.requestOverlayPermission()
                     OverlayAction.Show -> callbacks.showOverlay()
                     OverlayAction.Start -> callbacks.startOverlay()
                     OverlayAction.Hide -> callbacks.hideOverlay()
                     OverlayAction.None -> Unit
                 }
+                // The switch mirrors real service state: snap back when the
+                // request could not complete (permission prompt, failed start).
+                val delay = if (action == OverlayAction.RequestPermission) 0L else 900L
+                activity.window.decorView.postDelayed({ runRefreshers() }, delay)
             }
-            addNavigationRow(this, "运行与权限", if (overlayPermission) "悬浮窗权限已开启" else "需要悬浮窗权限") { navigate("overlay") }
+            page.refreshers += { master.setChecked(runtimeStatus == OverlayRuntimeStatus.Visible) }
+            val runtime = navRow(
+                "运行与权限",
+                value = nativeStatusLabel(runtimeStatus),
+                icon = RowIcon(R.drawable.ic_category_accessibility, IosTint.Gray),
+            ) { navigate("overlay") }
+            page.refreshers += { runtime.setValue(ui(nativeStatusLabel(runtimeStatus))) }
         }
-        section(content, "外观与位置") {
-            addNavigationRow(this, "尺寸、位置与触控", "胶囊、玻璃球、向下展开与触控范围") { navigate(ConfigGroup.Geometry) }
-            addNavigationRow(this, "背景与暗部", "屏幕压暗、暗部强度与渐变") { navigate(ConfigGroup.Container) }
-            addNavigationRow(this, "玻璃质感", "高光、折射与投影") { navigate(ConfigGroup.Glass) }
-            addNavigationRow(this, "波形效果", "颜色、线条与亮度") { navigate(ConfigGroup.Wave) }
-            addNavigationRow(this, "思考圆点", "大小、光晕与旋转") { navigate(ConfigGroup.Dots) }
+        main.section(null) {
+            groupRow(ConfigGroup.Geometry)
+            groupRow(ConfigGroup.Motion)
         }
-        section(content, "交互与运行效率") {
-            addNavigationRow(this, "手势与动画", "展开、收起、拖动与自动收起") { navigate(ConfigGroup.Motion) }
-            addNavigationRow(this, "性能", "帧率与渲染清晰度") { navigate(ConfigGroup.Performance) }
+        main.section(null) {
+            groupRow(ConfigGroup.Glass)
+            groupRow(ConfigGroup.Container)
+            groupRow(ConfigGroup.Wave)
+            groupRow(ConfigGroup.Dots)
         }
-        section(content, "配置") {
-            addNavigationRow(this, "效果预设", "默认、柔和与明亮") { navigate("presets") }
-            addNavigationRow(this, "备份与恢复", "导入、导出与重置设置") { navigate("data") }
+        main.section(null) {
+            groupRow(ConfigGroup.Performance)
         }
-        section(content, "应用") { addNavigationRow(this, "关于") { navigate("about") } }
-        return content
+        main.section(null) {
+            navRow("关于", icon = RowIcon(R.drawable.ic_category_about, IosTint.Gray)) { navigate("about") }
+        }
     }
 
-    private fun buildOverlayDetails(): View {
-        val content = column()
-        val status = runtimeStatus
-        section(content, "状态") {
-            addTextRow(this, "运行状态", nativeStatusLabel(status))
-            addNavigationRow(this, "悬浮权限", if (overlayPermission) "已允许" else "未允许") {
+    private fun IosRows.GroupScope.groupRow(group: ConfigGroup) {
+        navRow(group.title(), icon = group.icon()) { navigate(group) }
+    }
+
+    // region Search
+
+    private fun onSearchActiveChanged(active: Boolean) {
+        val page = pages.firstOrNull { it.screen == Screen.Home } ?: return
+        page.mainContent?.visibility = if (active) View.GONE else View.VISIBLE
+        page.searchContent?.visibility = if (active) View.VISIBLE else View.GONE
+        if (active) renderSearch("")
+        page.scroll.scrollTo(0, 0)
+        onBackAvailabilityChanged?.invoke(canGoBack)
+    }
+
+    private fun renderSearch(query: String) {
+        val page = pages.firstOrNull { it.screen == Screen.Home } ?: return
+        val container = page.searchContent ?: return
+        if (!searchBar.active) return
+        container.removeAllViews()
+        val needle = query.trim()
+        if (needle.isEmpty()) {
+            container.addView(rows.sectionFooter("输入设置名称，例如“高光”或“模糊”。"), matchWrap())
+            return
+        }
+        val index = searchIndex ?: buildSearchIndex().also { searchIndex = it }
+        val matches = index.filter {
+            ui(it.title).contains(needle, ignoreCase = true) || it.title.contains(needle, ignoreCase = true)
+        }.take(MAX_SEARCH_RESULTS)
+        if (matches.isEmpty()) {
+            container.addView(rows.sectionFooter(String.format(ui("没有与“%s”相关的设置。"), needle)), matchWrap())
+            return
+        }
+        container.section(null) {
+            matches.forEach { entry ->
+                val icon = (entry.screen as? Screen.Group)?.group?.icon()
+                navRow(entry.title, subtitle = entry.pageTitle.takeIf { it != entry.title }, icon = icon) {
+                    openSearchResult(entry)
+                }
+            }
+        }
+    }
+
+    /** Builds every second-level page off screen once and records its row titles. */
+    private fun buildSearchIndex(): List<SearchEntry> {
+        val screens = ConfigGroup.entries.map { Screen.Group(it) } + listOf(Screen.Overlay, Screen.About)
+        val entries = ArrayList<SearchEntry>()
+        screens.forEach { screen ->
+            val titles = ArrayList<String>()
+            rows.titleSink = { titles += it }
+            try {
+                createPage(screen)
+            } finally {
+                rows.titleSink = null
+            }
+            val pageTitle = screenTitle(screen)
+            entries += SearchEntry(pageTitle, screen, pageTitle)
+            titles.distinct().filter { it != pageTitle }.forEach { entries += SearchEntry(it, screen, pageTitle) }
+        }
+        return entries
+    }
+
+    private fun openSearchResult(entry: SearchEntry) {
+        searchBar.deactivate()
+        val screenKey = when (val screen = entry.screen) {
+            is Screen.Group -> screen.group
+            Screen.Overlay -> "overlay"
+            Screen.About -> "about"
+            else -> return
+        }
+        navigate(screenKey)
+        val page = pages.peekLast() ?: return
+        val label = ui(entry.title)
+        page.scroll.postDelayed({
+            val target = findText(page.column, label) ?: return@postDelayed
+            var top = 0
+            var view: View? = target
+            while (view != null && view !== page.column) {
+                top += view.top
+                view = view.parent as? View
+            }
+            page.scroll.smoothScrollTo(0, (top - dp(140f)).coerceAtLeast(0))
+        }, PAGE_NAVIGATION_DURATION_MS)
+    }
+
+    private fun findText(view: View, label: String): TextView? {
+        if (view is TextView && view.text?.toString() == label) return view
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) findText(view.getChildAt(index), label)?.let { return it }
+        }
+        return null
+    }
+
+    // endregion
+
+    private fun buildOverlayDetails(page: Page) {
+        val content = page.column
+        rows.headerCard(content, RowIcon(R.drawable.ic_category_accessibility, IosTint.Gray), "运行与权限", "管理悬浮窗权限、无障碍触控服务与开机自启。")
+        content.section("状态") {
+            val status = valueRow("运行状态", nativeStatusLabel(runtimeStatus))
+            page.refreshers += {
+                status.setValue(ui(nativeStatusLabel(runtimeStatus)))
+                val error = (runtimeStatus as? OverlayRuntimeStatus.Error)?.message
+                status.setSubtitle(error)
+                status.title?.setTextColor(if (error != null) palette.red else palette.label)
+            }
+            val permission = navRow("悬浮窗权限", value = if (overlayPermission) "已允许" else "未允许") {
                 callbacks.requestOverlayPermission()
             }
-            if (status is OverlayRuntimeStatus.Error) {
-                addTextRow(this, "错误", status.message, destructive = true)
-            }
+            page.refreshers += { permission.setValue(ui(if (overlayPermission) "已允许" else "未允许")) }
         }
-        section(content, "状态栏触控") {
-            addNavigationRow(
-                this,
+        content.section(
+            "状态栏触控",
+            footer = "仅用于状态栏触控和识别已知助手窗口；不读取文字、截图、录音或执行手势。",
+        ) {
+            val accessibility = navRow(
                 "无障碍触控服务",
-                if (accessibilityEnabled) "已开启 · 用于状态栏区域触控" else "未开启 · 点击前往系统授权",
+                value = if (accessibilityEnabled) "已开启" else "未开启",
             ) { callbacks.requestAccessibilityPermission() }
-            addNote(this, "仅用于创建可信触控窗口；不读取屏幕、不截图、不执行手势、不监听按键。国产 ROM 如有电池优化或自启动管理，请将本应用设为允许。")
+            page.refreshers += { accessibility.setValue(ui(if (accessibilityEnabled) "已开启" else "未开启")) }
         }
-        section(content, "操作") {
-            addNavigationRow(this, if (overlayPermission) "启动悬浮层" else "授权并返回") {
-                if (overlayPermission) callbacks.startOverlay() else callbacks.requestOverlayPermission()
+        content.section(
+            "启动",
+            footer = "开机后自动显示灵动岛。需要悬浮窗权限；Android 12 及以上还需要开启无障碍触控服务。",
+        ) {
+            val autoStart = switchRow("开机自动启动", null, autoStartEnabled) { enabled ->
+                autoStartEnabled = enabled
+                callbacks.setAutoStartEnabled(enabled)
             }
-            addNavigationRow(this, "显示悬浮层") {
-                if (overlayPermission) callbacks.showOverlay() else callbacks.requestOverlayPermission()
-            }
-            addNavigationRow(this, "隐藏悬浮层") { callbacks.hideOverlay() }
-            addActionRow(this, "停止悬浮层", destructive = true) { callbacks.stopOverlay() }
+            page.refreshers += { autoStart.setChecked(autoStartEnabled) }
         }
-        addNote(
-            content,
-            "首页开关关闭时仅隐藏悬浮球。停止会结束服务；重新开启总开关即可启动。系统状态栏、安全页面与锁屏不保证覆盖。",
-        )
-        return content
+        content.addView(rows.sectionFooter("首页开关可显示或隐藏灵动岛；锁屏、安全页面和系统状态栏不保证显示。"), matchWrap())
+        page.refreshers.forEach { it() }
     }
 
-    private fun buildGroup(group: ConfigGroup): View {
-        val content = column()
+    private fun buildGroupPage(page: Page, group: ConfigGroup) {
+        val content = page.column
+        rows.headerCard(content, group.icon(), group.title(), group.description())
         when (group) {
             ConfigGroup.Geometry -> buildGeometry(content)
             ConfigGroup.Glass -> buildGlass(content)
@@ -366,695 +720,517 @@ internal class NativeSettingsController(
             ConfigGroup.Motion -> buildMotion(content)
             ConfigGroup.Performance -> buildPerformance(content)
         }
-        addSubheading(content, "重置本组")
-        addActionRow(content, "恢复本组默认值", destructive = true) {
-            confirmResetGroup(group)
+        content.section("重置本组") {
+            actionRow("恢复本组默认值", destructive = true) { confirmResetGroup(group) }
         }
-        addNote(content, "仅恢复本页参数，其他分组保持当前设置。")
-        return groupLooseContent(content)
     }
 
     private fun buildGeometry(content: LinearLayout) {
-        addSubheading(content, "位置")
-        val anchors = RadioGroup(activity).apply {
-            orientation = RadioGroup.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12f), 0, dp(12f), dp(4f))
-        }
-        addAnchor(anchors, "左侧", HorizontalAnchor.Left)
-        addAnchor(anchors, "居中", HorizontalAnchor.Center)
-        addAnchor(anchors, "右侧", HorizontalAnchor.Right)
-        content.addView(anchors, matchWrap())
-        divider(content)
-
-        val verticalDensity = activity.resources.displayMetrics.density.coerceAtLeast(0.1f)
-        addSlider(
-            content,
-            "顶部偏移",
-            config.geometry.verticalOffsetDp * verticalDensity,
-            OrbConfig.reference().geometry.verticalOffsetDp * verticalDensity,
-            0f..300f,
-            "px",
-            decimals = 0,
-        ) { value ->
-            updateConfig { current ->
-                current.copy(geometry = current.geometry.copy(verticalOffsetDp = value / verticalDensity))
+        content.section("位置") {
+            segmentedRow(
+                "水平锚点",
+                listOf("左侧", "居中", "右侧"),
+                when (config.geometry.horizontalAnchor) {
+                    HorizontalAnchor.Left -> 0
+                    HorizontalAnchor.Center -> 1
+                    HorizontalAnchor.Right -> 2
+                },
+            ) { index ->
+                val anchor = when (index) {
+                    0 -> HorizontalAnchor.Left
+                    2 -> HorizontalAnchor.Right
+                    else -> HorizontalAnchor.Center
+                }
+                updateConfig { it.copy(geometry = it.geometry.copy(horizontalAnchor = anchor)) }
+            }
+            val verticalDensity = density.coerceAtLeast(0.1f)
+            sliderRow(
+                "顶部偏移",
+                config.geometry.verticalOffsetDp * verticalDensity,
+                OrbConfig.reference().geometry.verticalOffsetDp * verticalDensity,
+                0f..300f,
+                "px",
+                decimals = 0,
+            ) { value ->
+                updateConfig { current ->
+                    current.copy(geometry = current.geometry.copy(verticalOffsetDp = value / verticalDensity))
+                }
+            }
+            sliderRow("水平微调", config.geometry.horizontalOffsetDp, OrbConfig.reference().geometry.horizontalOffsetDp, -200f..200f, "dp") { value ->
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(horizontalOffsetDp = value)) }
             }
         }
-        addNote(content, "0 px = 真实物理屏幕顶边，最多向下 300 px。")
-        addSlider(content, "水平微调", config.geometry.horizontalOffsetDp, OrbConfig.reference().geometry.horizontalOffsetDp, -200f..200f, "dp") { value ->
-            updateConfig { current -> current.copy(geometry = current.geometry.copy(horizontalOffsetDp = value)) }
+        content.section("灵动岛尺寸") {
+            sliderRow("灵动岛宽度", config.geometry.capsuleWidthDp, OrbConfig.reference().geometry.capsuleWidthDp, 0f..220f, "dp") { value ->
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(capsuleWidthDp = value)) }
+            }
+            sliderRow("灵动岛高度", config.geometry.capsuleHeightDp, OrbConfig.reference().geometry.capsuleHeightDp, 0f..64f, "dp") { value ->
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(capsuleHeightDp = value)) }
+            }
         }
-
-        addSubheading(content, "胶囊尺寸")
-        addNote(content, "宽度或高度为 0 时隐藏胶囊图形，触控入口仍然保留。")
-        addSlider(content, "胶囊宽度", config.geometry.capsuleWidthDp, OrbConfig.reference().geometry.capsuleWidthDp, 0f..220f, "dp") { value ->
-            updateConfig { current -> current.copy(geometry = current.geometry.copy(capsuleWidthDp = value)) }
+        content.section("玻璃球") {
+            switchRow("向下展开", null, config.geometry.expandBelowCapsule) { enabled ->
+                updateConfig { it.copy(geometry = it.geometry.copy(expandBelowCapsule = enabled)) }
+            }
+            switchRow("全屏时隐藏灵动岛", "全屏时隐藏。", config.geometry.hideWhenStatusBarHidden) { enabled ->
+                updateConfig { it.copy(geometry = it.geometry.copy(hideWhenStatusBarHidden = enabled)) }
+            }
+            switchRow("横屏隐藏", "横屏时隐藏。", config.geometry.hideWhenLandscape) { enabled ->
+                updateConfig { it.copy(geometry = it.geometry.copy(hideWhenLandscape = enabled)) }
+            }
+            sliderRow("球体直径", config.geometry.orbDiameterDp, OrbConfig.reference().geometry.orbDiameterDp, 88f..220f, "dp") { value ->
+                updateConfig { current ->
+                    current.copy(geometry = current.geometry.copy(orbDiameterDp = value, orbWidthDp = value, orbHeightDp = value))
+                }
+            }
+            sliderRow("玻璃球宽度", config.geometry.orbWidthDp, OrbConfig.reference().geometry.orbWidthDp, 88f..260f, "dp") { value ->
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(orbWidthDp = value)) }
+            }
+            sliderRow("玻璃球高度", config.geometry.orbHeightDp, OrbConfig.reference().geometry.orbHeightDp, 88f..260f, "dp") { value ->
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(orbHeightDp = value)) }
+            }
+            sliderRow("外部效果余量", config.geometry.outerMarginDp, OrbConfig.reference().geometry.outerMarginDp, 8f..48f, "dp") { value ->
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(outerMarginDp = value)) }
+            }
+            sliderRow("效果画布比例", config.geometry.effectScale, OrbConfig.reference().geometry.effectScale, 0.9f..1.5f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(effectScale = value)) }
+            }
         }
-        addSlider(content, "胶囊高度", config.geometry.capsuleHeightDp, OrbConfig.reference().geometry.capsuleHeightDp, 0f..64f, "dp") { value ->
-            updateConfig { current -> current.copy(geometry = current.geometry.copy(capsuleHeightDp = value)) }
-        }
-        addSubheading(content, "玻璃球")
-        addSwitchRow(content, "向下展开", "展开后球体顶部位于胶囊底部下方 20 px", config.geometry.expandBelowCapsule) { enabled ->
-            updateConfig { it.copy(geometry = it.geometry.copy(expandBelowCapsule = enabled)) }
-        }
-        addSlider(content, "球体直径", config.geometry.orbDiameterDp, OrbConfig.reference().geometry.orbDiameterDp, 88f..220f, "dp") { value ->
-            updateConfig { current -> current.copy(geometry = current.geometry.copy(orbDiameterDp = value)) }
-        }
-        addSlider(content, "外部效果余量", config.geometry.outerMarginDp, OrbConfig.reference().geometry.outerMarginDp, 8f..48f, "dp") { value ->
-            updateConfig { current -> current.copy(geometry = current.geometry.copy(outerMarginDp = value)) }
-        }
-        addSlider(content, "效果画布比例", config.geometry.effectScale, OrbConfig.reference().geometry.effectScale, 0.9f..1.5f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(geometry = current.geometry.copy(effectScale = value)) }
-        }
-        addSubheading(content, "胶囊触控")
-        addNote(content, "展开后触控随球体轮廓变化，球体外可操作下层内容。")
-        lateinit var touchScaleRow: View
-        addSwitchRow(content, "扩大胶囊触摸区域", "仅扩大胶囊触控范围，最小 38 × 38 dp", config.geometry.enlargedTouchArea) { enabled ->
-            setControlEnabled(touchScaleRow, enabled)
-            updateConfig { current -> current.copy(geometry = current.geometry.copy(enlargedTouchArea = enabled)) }
-        }
-        touchScaleRow = addSlider(
-            parent = content,
-            label = "触摸区域倍率",
-            value = config.geometry.touchAreaScale,
-            defaultValue = OrbConfig.reference().geometry.touchAreaScale,
-            range = 1f..3f,
-            suffix = "×",
-            decimals = 2,
-            parameterId = ParameterId.TouchAreaScale,
-        ) { value -> updateConfig { current -> current.copy(geometry = current.geometry.copy(touchAreaScale = value)) } }
-        setControlEnabled(touchScaleRow, config.geometry.enlargedTouchArea)
-    }
-
-    private fun buildGlass(content: LinearLayout) {
-        addSubheading(content, "玻璃形态与光影")
-        addSlider(content, "内部深度", config.glass.internalDepth, OrbConfig.reference().glass.internalDepth, 0f..40f) { value ->
-            updateConfig { current -> current.copy(glass = current.glass.copy(internalDepth = value)) }
-        }
-        addSlider(content, "曲率", config.glass.curvature, OrbConfig.reference().glass.curvature, 0f..1f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(glass = current.glass.copy(curvature = value)) }
-        }
-        addSubheading(content, "高光")
-        addSlider(content, "高光亮度", config.glass.highlightAmount, OrbConfig.reference().glass.highlightAmount, 0f..2f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(glass = current.glass.copy(highlightAmount = value)) }
-        }
-        addSlider(content, "高光宽度", config.glass.highlightWidth, OrbConfig.reference().glass.highlightWidth, 0.2f..8f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(glass = current.glass.copy(highlightWidth = value)) }
-        }
-        addSlider(content, "高光收束", config.glass.highlightCut, OrbConfig.reference().glass.highlightCut, 0f..1f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(glass = current.glass.copy(highlightCut = value)) }
-        }
-        addSubheading(content, "阴影与焦散")
-        addSlider(content, "阴影", config.glass.shadowAmount, OrbConfig.reference().glass.shadowAmount, 0f..1.5f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(glass = current.glass.copy(shadowAmount = value)) }
-        }
-        addSlider(content, "焦散", config.glass.causticAmount, OrbConfig.reference().glass.causticAmount, 0f..3f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(glass = current.glass.copy(causticAmount = value)) }
-        }
-        addSlider(content, "阴影偏移", config.glass.shadowOffset, OrbConfig.reference().glass.shadowOffset, -3f..3f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(glass = current.glass.copy(shadowOffset = value)) }
-        }
-        addSlider(content, "焦散偏移", config.glass.causticOffset, OrbConfig.reference().glass.causticOffset, -4f..4f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(glass = current.glass.copy(causticOffset = value)) }
-        }
-        addSlider(content, "光影柔度", config.glass.lightSoftness, OrbConfig.reference().glass.lightSoftness, 0.5f..10f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(glass = current.glass.copy(lightSoftness = value)) }
+        content.section("灵动岛触控") {
+            lateinit var touchScale: RowHandle
+            switchRow("扩大灵动岛触摸区域", null, config.geometry.enlargedTouchArea) { enabled ->
+                touchScale.row.setRowEnabled(enabled)
+                updateConfig { current -> current.copy(geometry = current.geometry.copy(enlargedTouchArea = enabled)) }
+            }
+            touchScale = sliderRow(
+                label = "触摸区域倍率",
+                value = config.geometry.touchAreaScale,
+                defaultValue = OrbConfig.reference().geometry.touchAreaScale,
+                range = 1f..3f,
+                suffix = "×",
+                decimals = 2,
+                // Show the red touch outline on the live overlay while dragging.
+                onTrackingChanged = { tracking ->
+                    if (OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
+                        OrbOverlayService.setTouchPreview(activity, tracking)
+                    }
+                },
+            ) { value -> updateConfig { current -> current.copy(geometry = current.geometry.copy(touchAreaScale = value)) } }
+            touchScale.row.setRowEnabled(config.geometry.enlargedTouchArea)
         }
     }
 
     private fun buildContainer(content: LinearLayout) {
-        addSubheading(content, "屏幕背景")
-        addSwitchRow(content, "背景压暗", "从顶部 28% 黑色渐变到透明，随展开与收起淡入淡出", config.container.backgroundDimEnabled) { enabled ->
-            updateConfig { it.copy(container = it.container.copy(backgroundDimEnabled = enabled)) }
+        content.section("背景效果") { addBackgroundEffectControls() }
+        content.section("球体暗部") {
+            sliderRow("强度", config.container.strength, OrbConfig.reference().container.strength, 0f..4f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(container = current.container.copy(strength = value)) }
+            }
+            sliderRow("渐隐跨度", config.container.fade, OrbConfig.reference().container.fade, 0f..2f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(container = current.container.copy(fade = value)) }
+            }
+            sliderRow("暗部衰减", config.container.gaussian, OrbConfig.reference().container.gaussian, 0.5f..16f, decimals = 1) { value ->
+                updateConfig { current -> current.copy(container = current.container.copy(gaussian = value)) }
+            }
         }
-        addSubheading(content, "球体暗部")
-        addSlider(content, "强度", config.container.strength, OrbConfig.reference().container.strength, 0f..4f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(container = current.container.copy(strength = value)) }
+    }
+
+    /**
+     * The three background treatments, shared by the Common tab and the
+     * Container page. Lower-layer blur and glass-orb blur are mutually
+     * exclusive; the row that cannot be used is dimmed instead of rebuilding.
+     */
+    private fun IosRows.GroupScope.addBackgroundEffectControls() {
+        lateinit var lowerBlur: RowHandle
+        lateinit var lowerBlurAmount: RowHandle
+        lateinit var dimAmount: RowHandle
+        lateinit var glassBlur: RowHandle
+        lateinit var glassBlurAmount: RowHandle
+
+        lowerBlur = switchRow("下层模糊", null, config.container.backgroundAmbientBlurEnabled) { enabled ->
+            glassBlur.row.setRowEnabled(!enabled)
+            lowerBlurAmount.row.setRowEnabled(enabled)
+            glassBlurAmount.row.setRowEnabled(!enabled && config.container.backgroundBlurEnabled)
+            updateConfig { current ->
+                current.copy(
+                    container = current.container.copy(
+                        backgroundAmbientBlurEnabled = enabled,
+                        backgroundBlurEnabled = if (enabled) false else current.container.backgroundBlurEnabled,
+                    ),
+                )
+            }
         }
-        addNote(content, "0 = 完全透明；提高强度可让暗部更深，最高可达到不透明纯黑。")
-        addSlider(content, "渐隐跨度", config.container.fade, OrbConfig.reference().container.fade, 0f..2f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(container = current.container.copy(fade = value)) }
+        lowerBlurAmount = sliderRow(
+            "下层模糊度",
+            config.container.backgroundAmbientBlurPercent,
+            OrbConfig.reference().container.backgroundAmbientBlurPercent,
+            0f..100f,
+            "%",
+            decimals = 0,
+        ) { value ->
+            updateConfig { current -> current.copy(container = current.container.copy(backgroundAmbientBlurPercent = value)) }
         }
-        addSlider(content, "暗部衰减", config.container.gaussian, OrbConfig.reference().container.gaussian, 0.5f..16f, decimals = 1) { value ->
-            updateConfig { current -> current.copy(container = current.container.copy(gaussian = value)) }
+        switchRow("下层变暗", null, config.container.backgroundDimEnabled) { enabled ->
+            dimAmount.row.setRowEnabled(enabled)
+            updateConfig { current -> current.copy(container = current.container.copy(backgroundDimEnabled = enabled)) }
+        }
+        dimAmount = sliderRow(
+            "变暗程度",
+            config.container.backgroundDimPercent,
+            OrbConfig.reference().container.backgroundDimPercent,
+            0f..60f,
+            "%",
+            decimals = 0,
+        ) { value ->
+            updateConfig { current -> current.copy(container = current.container.copy(backgroundDimPercent = value)) }
+        }
+        glassBlur = switchRow("玻璃球模糊", null, config.container.backgroundBlurEnabled) { enabled ->
+            lowerBlur.row.setRowEnabled(!enabled)
+            lowerBlurAmount.row.setRowEnabled(!enabled && config.container.backgroundAmbientBlurEnabled)
+            glassBlurAmount.row.setRowEnabled(enabled)
+            updateConfig { current ->
+                current.copy(
+                    container = current.container.copy(
+                        backgroundBlurEnabled = enabled,
+                        backgroundAmbientBlurEnabled = if (enabled) false else current.container.backgroundAmbientBlurEnabled,
+                    ),
+                )
+            }
+        }
+        glassBlurAmount = sliderRow(
+            "玻璃球模糊度",
+            config.container.backgroundBlurPercent,
+            OrbConfig.reference().container.backgroundBlurPercent,
+            0f..100f,
+            "%",
+            decimals = 0,
+        ) { value ->
+            updateConfig { current -> current.copy(container = current.container.copy(backgroundBlurPercent = value)) }
+        }
+
+        lowerBlur.row.setRowEnabled(!config.container.backgroundBlurEnabled)
+        lowerBlurAmount.row.setRowEnabled(config.container.backgroundAmbientBlurEnabled)
+        dimAmount.row.setRowEnabled(config.container.backgroundDimEnabled)
+        glassBlur.row.setRowEnabled(!config.container.backgroundAmbientBlurEnabled)
+        glassBlurAmount.row.setRowEnabled(config.container.backgroundBlurEnabled)
+    }
+
+    private fun buildGlass(content: LinearLayout) {
+        content.section("玻璃形态与光影") {
+            sliderRow("内部深度", config.glass.internalDepth, OrbConfig.reference().glass.internalDepth, 0f..40f) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(internalDepth = value)) }
+            }
+            sliderRow("曲率", config.glass.curvature, OrbConfig.reference().glass.curvature, 0f..1f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(curvature = value)) }
+            }
+        }
+        content.section("高光") {
+            sliderRow("高光亮度", config.glass.highlightAmount, OrbConfig.reference().glass.highlightAmount, 0f..2f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(highlightAmount = value)) }
+            }
+            sliderRow("高光宽度", config.glass.highlightWidth, OrbConfig.reference().glass.highlightWidth, 0.2f..8f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(highlightWidth = value)) }
+            }
+            sliderRow("高光收束", config.glass.highlightCut, OrbConfig.reference().glass.highlightCut, 0f..1f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(highlightCut = value)) }
+            }
+        }
+        content.section("动态颜色") {
+            sliderRow(
+                "内部颜色",
+                config.glass.internalHueDegrees,
+                OrbConfig.reference().glass.internalHueDegrees,
+                0f..360f,
+                "°",
+                decimals = 0,
+            ) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(internalHueDegrees = value)) }
+            }
+            sliderRow(
+                "上半部高光颜色",
+                config.glass.upperHighlightHueDegrees,
+                OrbConfig.reference().glass.upperHighlightHueDegrees,
+                0f..360f,
+                "°",
+                decimals = 0,
+            ) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(upperHighlightHueDegrees = value)) }
+            }
+            sliderRow(
+                "上半部高光强度",
+                config.glass.upperHighlightAmount,
+                OrbConfig.reference().glass.upperHighlightAmount,
+                0f..2f,
+                decimals = 2,
+            ) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(upperHighlightAmount = value)) }
+            }
+        }
+        content.section("阴影与焦散") {
+            sliderRow("阴影", config.glass.shadowAmount, OrbConfig.reference().glass.shadowAmount, 0f..1.5f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(shadowAmount = value)) }
+            }
+            sliderRow("焦散强度", config.glass.causticAmount, OrbConfig.reference().glass.causticAmount, 0f..3f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(causticAmount = value)) }
+            }
+            sliderRow("阴影偏移", config.glass.shadowOffset, OrbConfig.reference().glass.shadowOffset, -3f..3f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(shadowOffset = value)) }
+            }
+            sliderRow("焦散偏移", config.glass.causticOffset, OrbConfig.reference().glass.causticOffset, -4f..4f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(causticOffset = value)) }
+            }
+            sliderRow("光影柔度", config.glass.lightSoftness, OrbConfig.reference().glass.lightSoftness, 0.5f..10f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(glass = current.glass.copy(lightSoftness = value)) }
+            }
         }
     }
 
     private fun buildWave(content: LinearLayout) {
-        addSubheading(content, "波形与色彩")
-        addSlider(content, "振幅", config.wave.amplitude, OrbConfig.reference().wave.amplitude, 0f..0.6f, decimals = 3) { value ->
-            updateConfig { current -> current.copy(wave = current.wave.copy(amplitude = value)) }
+        content.section("波形与色彩") {
+            sliderRow("振幅", config.wave.amplitude, OrbConfig.reference().wave.amplitude, 0f..0.6f, decimals = 3) { value ->
+                updateConfig { current -> current.copy(wave = current.wave.copy(amplitude = value)) }
+            }
+            sliderRow("尺度", config.wave.scale, OrbConfig.reference().wave.scale, 0.4f..1.6f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(wave = current.wave.copy(scale = value)) }
+            }
+            sliderRow("色散", config.wave.chromaticAberration, OrbConfig.reference().wave.chromaticAberration, 0f..8f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(wave = current.wave.copy(chromaticAberration = value)) }
+            }
         }
-        addSlider(content, "尺度", config.wave.scale, OrbConfig.reference().wave.scale, 0.4f..1.6f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(wave = current.wave.copy(scale = value)) }
-        }
-        addSlider(content, "色散", config.wave.chromaticAberration, OrbConfig.reference().wave.chromaticAberration, 0f..8f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(wave = current.wave.copy(chromaticAberration = value)) }
-        }
-        addSubheading(content, "光带")
-        addSlider(content, "线宽", config.wave.lineWidth, OrbConfig.reference().wave.lineWidth, 0.5f..8f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(wave = current.wave.copy(lineWidth = value)) }
-        }
-        addSlider(content, "亮度", config.wave.intensity, OrbConfig.reference().wave.intensity, 0f..5f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(wave = current.wave.copy(intensity = value)) }
-        }
-        addSlider(content, "填光", config.wave.bandFill, OrbConfig.reference().wave.bandFill, 0f..60_000f, decimals = 0) { value ->
-            updateConfig { current -> current.copy(wave = current.wave.copy(bandFill = value)) }
-        }
-        addSlider(content, "填光厚度", config.wave.bandFillThickness, OrbConfig.reference().wave.bandFillThickness, 0f..0.3f, decimals = 3) { value ->
-            updateConfig { current -> current.copy(wave = current.wave.copy(bandFillThickness = value)) }
-        }
-        addSlider(content, "柔化", config.wave.softness, OrbConfig.reference().wave.softness, 0.2f..8f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(wave = current.wave.copy(softness = value)) }
-        }
-        addSlider(content, "白色辉光", config.wave.whiteBloom, OrbConfig.reference().wave.whiteBloom, 0f..3f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(wave = current.wave.copy(whiteBloom = value)) }
-        }
-        addSlider(content, "色相偏移", config.wave.hueShiftDegrees, OrbConfig.reference().wave.hueShiftDegrees, -180f..180f, "°", 0) { value ->
-            updateConfig { current -> current.copy(wave = current.wave.copy(hueShiftDegrees = value)) }
+        content.section("光带") {
+            sliderRow("线宽", config.wave.lineWidth, OrbConfig.reference().wave.lineWidth, 0.5f..8f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(wave = current.wave.copy(lineWidth = value)) }
+            }
+            sliderRow("亮度", config.wave.intensity, OrbConfig.reference().wave.intensity, 0f..5f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(wave = current.wave.copy(intensity = value)) }
+            }
+            sliderRow("填光", config.wave.bandFill, OrbConfig.reference().wave.bandFill, 0f..60_000f, decimals = 0) { value ->
+                updateConfig { current -> current.copy(wave = current.wave.copy(bandFill = value)) }
+            }
+            sliderRow("填光厚度", config.wave.bandFillThickness, OrbConfig.reference().wave.bandFillThickness, 0f..0.3f, decimals = 3) { value ->
+                updateConfig { current -> current.copy(wave = current.wave.copy(bandFillThickness = value)) }
+            }
+            sliderRow("柔化", config.wave.softness, OrbConfig.reference().wave.softness, 0.2f..8f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(wave = current.wave.copy(softness = value)) }
+            }
+            sliderRow("白色辉光", config.wave.whiteBloom, OrbConfig.reference().wave.whiteBloom, 0f..3f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(wave = current.wave.copy(whiteBloom = value)) }
+            }
+            sliderRow("色相偏移", config.wave.hueShiftDegrees, OrbConfig.reference().wave.hueShiftDegrees, -180f..180f, "°", 0) { value ->
+                updateConfig { current -> current.copy(wave = current.wave.copy(hueShiftDegrees = value)) }
+            }
         }
     }
 
     private fun buildDots(content: LinearLayout) {
-        addSubheading(content, "粒子外观与运动")
-        addSlider(content, "环半径", config.dots.ringRadius, OrbConfig.reference().dots.ringRadius, 0.15f..0.75f, decimals = 3) { value ->
-            updateConfig { current -> current.copy(dots = current.dots.copy(ringRadius = value)) }
-        }
-        addSlider(content, "点半径", config.dots.dotRadius, OrbConfig.reference().dots.dotRadius, 0.025f..0.22f, decimals = 3) { value ->
-            updateConfig { current -> current.copy(dots = current.dots.copy(dotRadius = value)) }
-        }
-        addSlider(content, "辉光", config.dots.glow, OrbConfig.reference().dots.glow, 0f..0.2f, decimals = 3) { value ->
-            updateConfig { current -> current.copy(dots = current.dots.copy(glow = value)) }
-        }
-        addSlider(content, "转速", config.dots.rotationSpeed, OrbConfig.reference().dots.rotationSpeed, -3f..3f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(dots = current.dots.copy(rotationSpeed = value)) }
+        content.section("粒子外观与运动") {
+            sliderRow("环半径", config.dots.ringRadius, OrbConfig.reference().dots.ringRadius, 0.15f..0.75f, decimals = 3) { value ->
+                updateConfig { current -> current.copy(dots = current.dots.copy(ringRadius = value)) }
+            }
+            sliderRow("点半径", config.dots.dotRadius, OrbConfig.reference().dots.dotRadius, 0.025f..0.22f, decimals = 3) { value ->
+                updateConfig { current -> current.copy(dots = current.dots.copy(dotRadius = value)) }
+            }
+            sliderRow("辉光", config.dots.glow, OrbConfig.reference().dots.glow, 0f..0.2f, decimals = 3) { value ->
+                updateConfig { current -> current.copy(dots = current.dots.copy(glow = value)) }
+            }
+            sliderRow("转速", config.dots.rotationSpeed, OrbConfig.reference().dots.rotationSpeed, -3f..3f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(dots = current.dots.copy(rotationSpeed = value)) }
+            }
         }
     }
 
     private fun buildMotion(content: LinearLayout) {
-        addSubheading(content, "上滑与拖动")
-        addSlider(content, "收起跟手距离", config.motion.collapseRangeDp, OrbConfig.reference().motion.collapseRangeDp, 24f..120f, "dp") { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(collapseRangeDp = value)) }
+        content.section("上滑与拖动") {
+            sliderRow("收起跟手距离", config.motion.collapseRangeDp, OrbConfig.reference().motion.collapseRangeDp, 24f..120f, "dp") { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(collapseRangeDp = value)) }
+            }
+            sliderRow("拖拽弹性范围", config.motion.dragRangeDp, OrbConfig.reference().motion.dragRangeDp, 16f..160f, "dp") { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(dragRangeDp = value)) }
+            }
+            sliderRow("拖拽响应系数", config.motion.dragResistance, OrbConfig.reference().motion.dragResistance, 0.05f..2f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(dragResistance = value)) }
+            }
         }
-        addSlider(content, "拖拽弹性范围", config.motion.dragRangeDp, OrbConfig.reference().motion.dragRangeDp, 16f..160f, "dp") { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(dragRangeDp = value)) }
+        content.section("形变与回弹") {
+            sliderRow("形变位移上限", config.motion.deformLimitDp, OrbConfig.reference().motion.deformLimitDp, 0f..8f, "dp") { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(deformLimitDp = value)) }
+            }
+            sliderRow("形变幅度", config.motion.deformScaleDelta, OrbConfig.reference().motion.deformScaleDelta, 0f..0.02f, decimals = 3) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(deformScaleDelta = value)) }
+            }
+            sliderRow("形变回弹反应", config.motion.deformResponse, OrbConfig.reference().motion.deformResponse, 0.08f..1.5f, "s", 2) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(deformResponse = value)) }
+            }
+            sliderRow("形变回弹阻尼", config.motion.deformDamping, OrbConfig.reference().motion.deformDamping, 0.1f..1.5f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(deformDamping = value)) }
+            }
         }
-        addSlider(content, "拖拽响应系数", config.motion.dragResistance, OrbConfig.reference().motion.dragResistance, 0.05f..2f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(dragResistance = value)) }
+        content.section("展开与收起") {
+            sliderRow("展开响应", config.motion.openResponse, OrbConfig.reference().motion.openResponse, 0.12f..1.2f, "s", 2) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(openResponse = value)) }
+            }
+            sliderRow("展开阻尼", config.motion.openDamping, OrbConfig.reference().motion.openDamping, 0.2f..1.5f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(openDamping = value)) }
+            }
+            sliderRow("收起响应", config.motion.closeResponse, OrbConfig.reference().motion.closeResponse, 0.12f..1.2f, "s", 2) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(closeResponse = value)) }
+            }
+            sliderRow("收起阻尼", config.motion.closeDamping, OrbConfig.reference().motion.closeDamping, 0.2f..1.5f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(closeDamping = value)) }
+            }
+            sliderRow("收起回弹幅度", config.motion.closeBounce, OrbConfig.reference().motion.closeBounce, 0f..0.12f, decimals = 3) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(closeBounce = value)) }
+            }
+            sliderRow("波形渐入延迟", config.motion.waveFadeDelayMs.toFloat(), OrbConfig.reference().motion.waveFadeDelayMs.toFloat(), 0f..500f, "ms", 0) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(waveFadeDelayMs = value.toInt())) }
+            }
         }
-        addSubheading(content, "形变与回弹")
-        addSlider(content, "形变位移上限", config.motion.deformLimitDp, OrbConfig.reference().motion.deformLimitDp, 0f..8f, "dp") { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(deformLimitDp = value)) }
+        content.section("呼吸与点击") {
+            sliderRow("呼吸幅度", config.motion.breathingAmplitude, OrbConfig.reference().motion.breathingAmplitude, 0f..0.08f, decimals = 3) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(breathingAmplitude = value)) }
+            }
+            sliderRow("呼吸速度", config.motion.breathingSpeed, OrbConfig.reference().motion.breathingSpeed, 0f..4f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(breathingSpeed = value)) }
+            }
+            sliderRow("点击放大", config.motion.pressScale, OrbConfig.reference().motion.pressScale, 1f..1.08f, decimals = 3) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(pressScale = value)) }
+            }
+            sliderRow("思考停留", config.motion.thinkingDurationMs.toFloat(), OrbConfig.reference().motion.thinkingDurationMs.toFloat(), 300f..5_000f, "ms", 0) { value ->
+                updateConfig { current -> current.copy(motion = current.motion.copy(thinkingDurationMs = value.toInt())) }
+            }
         }
-        addSlider(content, "形变幅度", config.motion.deformScaleDelta, OrbConfig.reference().motion.deformScaleDelta, 0f..0.02f, decimals = 3) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(deformScaleDelta = value)) }
+        content.section("自动收起") {
+            lateinit var countdown: RowHandle
+            switchRow("自动收起", null, config.motion.autoCollapseEnabled) { enabled ->
+                countdown.row.setRowEnabled(enabled)
+                updateConfig { it.copy(motion = it.motion.copy(autoCollapseEnabled = enabled)) }
+            }
+            countdown = sliderRow("等待时间", config.motion.autoCollapseSeconds, OrbConfig.reference().motion.autoCollapseSeconds, 1f..60f, "s", 1) { value ->
+                updateConfig { it.copy(motion = it.motion.copy(autoCollapseSeconds = value)) }
+            }
+            countdown.row.setRowEnabled(config.motion.autoCollapseEnabled)
         }
-        addSlider(content, "形变回弹反应", config.motion.deformResponse, OrbConfig.reference().motion.deformResponse, 0.08f..1.5f, "s", 2) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(deformResponse = value)) }
-        }
-        addSlider(content, "形变回弹阻尼", config.motion.deformDamping, OrbConfig.reference().motion.deformDamping, 0.1f..1.5f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(deformDamping = value)) }
-        }
-        addSubheading(content, "展开与收起")
-        addSlider(content, "展开响应", config.motion.openResponse, OrbConfig.reference().motion.openResponse, 0.12f..1.2f, "s", 2) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(openResponse = value)) }
-        }
-        addSlider(content, "展开阻尼", config.motion.openDamping, OrbConfig.reference().motion.openDamping, 0.2f..1.5f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(openDamping = value)) }
-        }
-        addSlider(content, "收起响应", config.motion.closeResponse, OrbConfig.reference().motion.closeResponse, 0.12f..1.2f, "s", 2) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(closeResponse = value)) }
-        }
-        addSlider(content, "收起阻尼", config.motion.closeDamping, OrbConfig.reference().motion.closeDamping, 0.2f..1.5f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(closeDamping = value)) }
-        }
-        addSlider(content, "收起回弹幅度", config.motion.closeBounce, OrbConfig.reference().motion.closeBounce, 0f..0.12f, decimals = 3) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(closeBounce = value)) }
-        }
-        addSlider(content, "波形渐入延迟", config.motion.waveFadeDelayMs.toFloat(), OrbConfig.reference().motion.waveFadeDelayMs.toFloat(), 0f..500f, "ms", 0) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(waveFadeDelayMs = value.toInt())) }
-        }
-        addSubheading(content, "呼吸与点击")
-        addSlider(content, "呼吸幅度", config.motion.breathingAmplitude, OrbConfig.reference().motion.breathingAmplitude, 0f..0.08f, decimals = 3) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(breathingAmplitude = value)) }
-        }
-        addSlider(content, "呼吸速度", config.motion.breathingSpeed, OrbConfig.reference().motion.breathingSpeed, 0f..4f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(breathingSpeed = value)) }
-        }
-        addSlider(content, "点击放大", config.motion.pressScale, OrbConfig.reference().motion.pressScale, 1f..1.08f, decimals = 3) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(pressScale = value)) }
-        }
-        addSlider(content, "思考停留", config.motion.thinkingDurationMs.toFloat(), OrbConfig.reference().motion.thinkingDurationMs.toFloat(), 300f..5_000f, "ms", 0) { value ->
-            updateConfig { current -> current.copy(motion = current.motion.copy(thinkingDurationMs = value.toInt())) }
-        }
-        addSubheading(content, "自动收起")
-        lateinit var countdown: View
-        addSwitchRow(content, "自动收起", "无操作时自动返回胶囊", config.motion.autoCollapseEnabled) { enabled ->
-            setControlEnabled(countdown, enabled)
-            updateConfig { it.copy(motion = it.motion.copy(autoCollapseEnabled = enabled)) }
-        }
-        countdown = addSlider(content, "等待时间", config.motion.autoCollapseSeconds, OrbConfig.reference().motion.autoCollapseSeconds, 1f..60f, "s", 1) { value ->
-            updateConfig { it.copy(motion = it.motion.copy(autoCollapseSeconds = value)) }
-        }
-        setControlEnabled(countdown, config.motion.autoCollapseEnabled)
     }
 
     private fun buildPerformance(content: LinearLayout) {
-        addSubheading(content, "帧率与清晰度")
-        addNote(content, "更高的帧率与渲染比例会增加耗电；实际帧率受屏幕刷新率限制。")
-        addSlider(content, "胶囊帧率", config.performance.collapsedFps.toFloat(), OrbConfig.reference().performance.collapsedFps.toFloat(), 24f..120f, "fps", 0) { value ->
-            updateConfig { current -> current.copy(performance = current.performance.copy(collapsedFps = value.toInt())) }
-        }
-        addSlider(content, "展开帧率", config.performance.expandedFps.toFloat(), OrbConfig.reference().performance.expandedFps.toFloat(), 24f..120f, "fps", 0) { value ->
-            updateConfig { current -> current.copy(performance = current.performance.copy(expandedFps = value.toInt())) }
-        }
-        addSlider(content, "渲染比例", config.performance.renderScale, OrbConfig.reference().performance.renderScale, 0.5f..1.25f, decimals = 2) { value ->
-            updateConfig { current -> current.copy(performance = current.performance.copy(renderScale = value)) }
-        }
-    }
-
-    private fun buildPresets(): View {
-        val content = column()
-        addNote(content, "选择预设后会替换全部参数。")
-        addSubheading(content, "预设")
-        val radios = RadioGroup(activity).apply {
-            orientation = RadioGroup.VERTICAL
-            setPadding(dp(8f), 0, dp(8f), 0)
-        }
-        listOf(
-            "默认效果" to ConfigPreset.Reference,
-            "柔和" to ConfigPreset.Soft,
-            "明亮" to ConfigPreset.Bright,
-        ).forEach { (name, preset) ->
-            val radio = MaterialRadioButton(activity).apply {
-                text = name
-                textSize = 16f
-                minHeight = dp(48f)
-                setPadding(dp(8f), 0, dp(8f), 0)
-                isChecked = config == when (preset) {
-                    ConfigPreset.Reference -> OrbConfig.reference()
-                    ConfigPreset.Soft -> OrbConfig.soft()
-                    ConfigPreset.Bright -> OrbConfig.bright()
-                }
-                setOnClickListener {
-                    requestCurrentPageRefresh()
-                    callbacks.applyPreset(preset)
-                    Toast.makeText(activity, "已应用$name", Toast.LENGTH_SHORT).show()
-                }
-            }
-            radios.addView(radio, matchWrap())
-        }
-        content.addView(radios, matchWrap())
-        return groupLooseContent(content)
-    }
-
-    private fun buildDataManagement(): View {
-        val content = column()
-        addSubheading(content, "导出")
-        addActionRow(content, "分享 JSON") {
-            val json = callbacks.exportJson()
-            val share = Intent(Intent.ACTION_SEND).apply {
-                type = "application/json"
-                putExtra(Intent.EXTRA_TEXT, json)
-            }
-            activity.startActivity(Intent.createChooser(share, "分享设置 JSON"))
-        }
-        addSubheading(content, "导入 JSON")
-        val input = TextInputEditText(activity).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            gravity = Gravity.TOP or Gravity.START
-            minLines = 8
-            maxLines = 16
-            setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
-            contentDescription = "参数 JSON"
-        }
-        val inputLayout = TextInputLayout(activity).apply {
-            hint = "输入导出的 JSON"
-            boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-            addView(input, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            ))
-        }
-        content.addView(inputLayout, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(220f)))
-        val error = TextView(activity).apply {
-            setTextColor(themeColor(android.R.attr.colorAccent))
-            visibility = View.GONE
-            setPadding(dp(16f), dp(4f), dp(16f), dp(4f))
-        }
-        content.addView(error, matchWrap())
-        addActionRow(content, "导入参数") {
-            if (input.text.isNullOrBlank()) {
-                error.text = "请先输入参数 JSON"
-                error.visibility = View.VISIBLE
-            } else {
-                requestCurrentPageRefresh()
-                callbacks.importJson(input.text.toString()) { result ->
-                    activity.runOnUiThread {
-                        if (result.isSuccess) {
-                            error.visibility = View.GONE
-                            Toast.makeText(activity, "参数已导入", Toast.LENGTH_SHORT).show()
-                        } else {
-                            error.text = "JSON 解析失败，现有参数未变更"
-                            error.visibility = View.VISIBLE
-                        }
-                    }
-                }
+        content.section("帧率与清晰度", footer = "展开、收起与玻璃球按 120 fps 请求刷新。") {
+            sliderRow("渲染比例", config.performance.renderScale, OrbConfig.reference().performance.renderScale, 0.5f..1.25f, decimals = 2) { value ->
+                updateConfig { current -> current.copy(performance = current.performance.copy(renderScale = value)) }
             }
         }
-        addNote(content, "导入会覆盖当前设置，建议先分享一份备份。应用不会读取或写入系统剪贴板。")
-        addSubheading(content, "重置")
-        addActionRow(content, "恢复全部默认设置", destructive = true) { confirmResetAll() }
-        return groupLooseContent(content)
     }
 
-    private fun buildAbout(): View {
-        val content = column()
-        section(content, "灵动玻璃球") {
-            val icon = ImageView(activity).apply {
-                setImageResource(com.cxcboss.glassorb.R.mipmap.ic_launcher)
-                contentDescription = "应用图标"
-            }
-            addView(icon, LinearLayout.LayoutParams(dp(72f), dp(72f)).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                setMargins(0, dp(20f), 0, dp(12f))
-            })
-            addTextRow(this, "版本", BuildConfig.VERSION_NAME)
-            addTextRow(this, "构建编号", BuildConfig.VERSION_CODE.toString())
-        }
-        section(content, "隐私与许可") {
-            addTextRow(this, "本地运行", "设置仅保存在本机。")
-            addNavigationRow(this, "开源许可") { navigate("licenses") }
-        }
-        return content
-    }
-
-    private fun buildLicenses(): View {
-        val content = column()
-        section(content, "许可与归属") {
-            val notice = activity.assets.open("NOTICE.txt").bufferedReader().use { it.readText() }
-            addTextRow(this, "第三方声明", notice)
-            val license = activity.assets.open("AndroidLiquidGlass-LICENSE.txt").bufferedReader().use { it.readText() }
-            addTextRow(this, "许可证", license)
-        }
-        return content
-    }
-
-    private fun addAnchor(group: RadioGroup, label: String, anchor: HorizontalAnchor) {
-        val radio = MaterialRadioButton(activity).apply {
-            text = label
-            minHeight = dp(44f)
-            gravity = Gravity.CENTER_VERTICAL
-            textSize = 16f
-            minimumHeight = dp(48f)
-            isChecked = config.geometry.horizontalAnchor == anchor
-            setPadding(dp(8f), 0, dp(16f), 0)
-            setOnClickListener {
-                updateConfig { it.copy(geometry = it.geometry.copy(horizontalAnchor = anchor)) }
-                for (index in 0 until group.childCount) {
-                    (group.getChildAt(index) as? MaterialRadioButton)?.isChecked = index == group.indexOfChild(this)
-                }
-            }
-        }
-        group.addView(radio, RadioGroup.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-    }
-
-    private fun addSlider(
-        parent: LinearLayout,
-        label: String,
-        value: Float,
-        defaultValue: Float,
-        range: ClosedFloatingPointRange<Float>,
-        suffix: String = "",
-        decimals: Int = 1,
-        parameterId: ParameterId? = null,
-        enabled: Boolean = true,
-        onValueChange: (Float) -> Unit,
-    ): View {
-        val row = LinearLayout(activity).apply {
+    private fun buildAbout(page: Page) {
+        val content = page.column
+        val hero = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16f), dp(8f), dp(16f), dp(4f))
-        }
-        val labels = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        val title = TextView(activity).apply {
-            text = label
-            textSize = 16f
-            setTextColor(themeColor(android.R.attr.textColorPrimary))
-        }
-        labels.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val valueText = TextView(activity).apply {
-            textSize = 14f
-            gravity = Gravity.CENTER_VERTICAL or Gravity.END
-            setTextColor(themeColor(android.R.attr.colorAccent))
-            minWidth = dp(92f)
-        }
-        labels.addView(valueText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44f)))
-        lateinit var slider: Slider
-        lateinit var updateLabels: (Float) -> Unit
-        val reset = MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonStyle).apply {
-            text = "还原"
-            minHeight = dp(44f)
-            minimumWidth = dp(64f)
-            insetTop = 0
-            insetBottom = 0
-            elevation = 0f
-            stateListAnimator = null
-            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.TRANSPARENT)
-            setTextColor(themeColor(android.R.attr.colorAccent))
-            contentDescription = "$label 还原默认值"
-            setOnClickListener {
-                val restored = snapToSliderStep(defaultValue, range, decimals)
-                slider.value = restored
-                updateLabels(restored)
-                onValueChange(restored)
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(palette.cell)
+                cornerRadius = dpF(IosRows.CARD_RADIUS_DP)
             }
+            setPadding(dp(24f), dp(24f), dp(24f), dp(22f))
         }
-        labels.addView(reset, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(44f)))
-        row.addView(labels, matchWrap())
-
-        val initialValue = snapToSliderStep(value, range, decimals)
-        slider = Slider(activity).apply {
-            contentDescription = "$label 调节"
-            minimumHeight = dp(48f)
-            valueFrom = range.start
-            valueTo = range.endInclusive
-            // Keep the official Material control continuous, then snap only
-            // the published setting. This avoids Material Slider throwing
-            // when a persisted float is infinitesimally off a discrete step.
-            stepSize = 0f
-            setValue(initialValue)
-            // Keep the entire 48dp control target active, including the track
-            // ends, so a tap positions the thumb and a drag never gets lost.
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48f))
-            isEnabled = enabled
-        }
-        row.addView(slider)
-        parent.addView(row, matchWrap())
-        row.alpha = if (enabled) 1f else 0.42f
-
-        updateLabels = { current: Float ->
-            valueText.text = formatParameter(current, suffix, decimals)
-            reset.visibility = if (isParameterModified(current, defaultValue, decimals)) View.VISIBLE else View.INVISIBLE
-        }
-        updateLabels(initialValue)
-        slider.addOnChangeListener(Slider.OnChangeListener { _, next, fromUser ->
-            if (!fromUser) return@OnChangeListener
-            val snapped = snapToSliderStep(next, range, decimals)
-            updateLabels(snapped)
-            onValueChange(snapped)
-        })
-        slider.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
-            override fun onStartTrackingTouch(slider: Slider) {
-                sliderTracking = true
-                if (parameterId == ParameterId.TouchAreaScale && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
-                    OrbOverlayService.setTouchPreview(activity, true)
+        hero.addView(ImageView(activity).apply {
+            setImageResource(R.mipmap.ic_launcher)
+            contentDescription = ui("应用图标")
+            val radius = dpF(15f)
+            outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: android.graphics.Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, radius)
                 }
             }
-
-            override fun onStopTrackingTouch(slider: Slider) {
-                sliderTracking = false
-                if (parameterId == ParameterId.TouchAreaScale && OverlayRuntime.status.value == OverlayRuntimeStatus.Visible) {
-                    OrbOverlayService.setTouchPreview(activity, false)
-                }
-            }
-        })
-        return row
-    }
-
-    private fun setControlEnabled(view: View, enabled: Boolean) {
-        fun applyEnabled(child: View) {
-            child.isEnabled = enabled
-            if (child is ViewGroup) for (index in 0 until child.childCount) applyEnabled(child.getChildAt(index))
-        }
-        applyEnabled(view)
-        view.alpha = if (enabled) 1f else 0.42f
-    }
-
-    private fun addSwitchRow(
-        parent: LinearLayout,
-        title: String,
-        detail: String?,
-        checked: Boolean,
-        onChanged: (Boolean) -> Unit,
-    ) {
-        val row = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(64f)
-            setPadding(dp(16f), dp(4f), dp(12f), dp(4f))
-            background = selectableBackground()
-            contentDescription = title
-        }
-        val labels = labelColumn(title, detail)
-        row.addView(labels, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val toggle = MaterialSwitch(activity).apply {
-            isChecked = checked
-            contentDescription = title
-            setOnCheckedChangeListener { _, value -> onChanged(value) }
-        }
-        row.addView(toggle, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48f)))
-        row.setOnClickListener { toggle.performClick() }
-        parent.addView(row, matchWrap())
-        divider(parent)
-    }
-
-    private fun addNavigationRow(parent: LinearLayout, title: String, detail: String? = null, onClick: () -> Unit) {
-        val row = LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(56f)
-            setPadding(dp(16f), dp(4f), dp(12f), dp(4f))
-            background = selectableBackground()
-            contentDescription = title
-            setOnClickListener { onClick() }
-        }
-        row.addView(labelColumn(title, detail), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val arrow = ImageView(activity).apply {
-            setImageResource(com.cxcboss.glassorb.R.drawable.ic_arrow_forward)
-            contentDescription = null
-            alpha = 0.65f
-        }
-        row.addView(arrow, LinearLayout.LayoutParams(dp(32f), dp(48f)))
-        parent.addView(row, matchWrap())
-        divider(parent)
-    }
-
-    private fun addActionRow(parent: LinearLayout, title: String, destructive: Boolean = false, onClick: () -> Unit) {
-        val row = TextView(activity).apply {
-            text = title
-            textSize = 16f
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(56f)
-            setPadding(dp(16f), 0, dp(16f), 0)
-            setTextColor(if (destructive) destructiveColor() else themeColor(android.R.attr.colorAccent))
-            background = selectableBackground()
-            contentDescription = title
-            setOnClickListener { onClick() }
-        }
-        parent.addView(row, matchWrap())
-        divider(parent)
-    }
-
-    private fun addTextRow(parent: LinearLayout, title: String, detail: String, destructive: Boolean = false) {
-        val row = labelColumn(title, detail).apply {
-            setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
-            if (destructive) {
-                findViewById<TextView>(android.R.id.text1)?.setTextColor(destructiveColor())
-            }
-        }
-        parent.addView(row, matchWrap())
-        divider(parent)
-    }
-
-    private fun addSubheading(parent: LinearLayout, title: String) {
-        val heading = TextView(activity).apply {
-            text = title
-            tag = "section-heading"
-            textSize = 14f
-            setTextColor(themeColor(android.R.attr.textColorSecondary))
-            setPadding(dp(16f), dp(22f), dp(16f), dp(8f))
-        }
-        parent.addView(heading, matchWrap())
-    }
-
-    private fun addNote(parent: LinearLayout, text: String) {
-        val note = TextView(activity).apply {
-            this.text = text
-            textSize = 13f
-            setTextColor(themeColor(android.R.attr.textColorSecondary))
-            setPadding(dp(16f), dp(8f), dp(16f), dp(8f))
-        }
-        parent.addView(note, matchWrap())
-    }
-
-    private fun section(parent: LinearLayout, title: String, content: LinearLayout.() -> Unit) {
-        addSubheading(parent, title)
-        val group = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            background = roundedSurface()
             clipToOutline = true
-            elevation = 0f
-            content()
-        }
-        parent.addView(group, matchWrap().apply { setMargins(dp(12f), 0, dp(12f), dp(12f)) })
-    }
-
-    private fun labelColumn(title: String, detail: String?): LinearLayout = LinearLayout(activity).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER_VERTICAL
-        val titleView = TextView(activity).apply {
-            id = android.R.id.text1
-            text = title
-            textSize = 16f
-            setTextColor(themeColor(android.R.attr.textColorPrimary))
-        }
-        addView(titleView, matchWrap())
-        if (!detail.isNullOrBlank()) {
-            val detailView = TextView(activity).apply {
-                id = android.R.id.text2
-                text = detail
-                textSize = 13f
-                setTextColor(themeColor(android.R.attr.textColorSecondary))
+        }, LinearLayout.LayoutParams(dp(64f), dp(64f)))
+        hero.addView(TextView(activity).apply {
+            text = activity.getString(R.string.app_name)
+            textSize = 22f
+            typeface = Typeface.create("sans-serif", Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(palette.label)
+            setPadding(0, dp(14f), 0, dp(4f))
+        }, matchWrap())
+        hero.addView(TextView(activity).apply {
+            text = ui("灵动岛与液态玻璃球视觉体验，非商业学习演示。")
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setTextColor(palette.secondaryLabel)
+        }, matchWrap())
+        content.addView(hero, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(dp(16f), dp(8f), dp(16f), 0)
+        })
+        content.section(null) {
+            valueRow("App 版本", BuildConfig.VERSION_NAME)
+            valueRow("获取 App", "", "关注抖音或微信公众号“你好小机”")
+            navRow("仓库参考", "玻璃球视觉与动画参考开源学习项目") {
+                runCatching {
+                    activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REFERENCE_REPOSITORY_URL)))
+                }
             }
-            addView(detailView, matchWrap())
+            navRow("开源许可与声明") { navigate("licenses") }
         }
     }
 
-    private fun column(): LinearLayout = LinearLayout(activity).apply {
-        orientation = LinearLayout.VERTICAL
-        setBackgroundColor(themeColor(android.R.attr.colorBackground))
-        setPadding(0, dp(8f), 0, 0)
-        isFocusable = true
+    private fun buildLicenses(page: Page) {
+        val content = page.column
+        rows.headerCard(content, RowIcon(R.drawable.ic_category_about, IosTint.Gray), "开源许可与声明", "本应用参考与使用的开源项目、商标声明及完整许可证。")
+        listOf(
+            "NOTICE.txt" to "声明与来源",
+            "AndroidLiquidGlass-LICENSE.txt" to "Apache License 2.0",
+        ).forEach { (file, heading) ->
+            content.section(heading) {
+                customRow(TextView(activity).apply {
+                    text = readAsset(file)
+                    textSize = 12f
+                    typeface = Typeface.MONOSPACE
+                    setTextColor(palette.secondaryLabel)
+                    setLineSpacing(dpF(2f), 1f)
+                    setTextIsSelectable(true)
+                    setPadding(dp(20f), dp(16f), dp(20f), dp(16f))
+                })
+            }
+        }
     }
 
-    private fun groupLooseContent(source: LinearLayout): View {
-        val result = column()
-        var title = "参数"
-        val pending = mutableListOf<View>()
-        fun flush() {
-            if (pending.isEmpty()) return
-            section(result, title) { pending.forEach { addView(it) } }
-            pending.clear()
+    private fun readAsset(name: String): String = runCatching {
+        activity.assets.open(name).bufferedReader().use { it.readText() }
+    }.getOrElse { "—" }
+
+    // endregion
+
+    // region Helpers
+
+    private fun LinearLayout.section(
+        header: String?,
+        footer: String? = null,
+        build: IosRows.GroupScope.() -> Unit,
+    ) {
+        if (header != null) {
+            addView(rows.sectionHeader(header), matchWrap())
+        } else {
+            addView(View(activity), LinearLayout.LayoutParams(1, dp(22f)))
         }
-        while (source.childCount > 0) {
-            val child = source.getChildAt(0)
-            source.removeViewAt(0)
-            if (child.tag == "section-heading") {
-                flush()
-                title = (child as TextView).text.toString()
-            } else pending.add(child)
-        }
-        flush()
-        return result
+        rows.group(this, build)
+        if (footer != null) addView(rows.sectionFooter(footer), matchWrap())
     }
 
-    private fun roundedSurface(): android.graphics.drawable.Drawable = android.graphics.drawable.GradientDrawable().apply {
-        setColor(themeColor(com.google.android.material.R.attr.colorSurface))
-        cornerRadius = dp(16f).toFloat()
+    private fun screenKey(screen: Screen): String = when (screen) {
+        Screen.Home -> "home"
+        Screen.Overlay -> "overlay"
+        is Screen.Group -> "group:${screen.group.name}"
+        Screen.About -> "about"
+        Screen.Licenses -> "licenses"
+    }
+
+    private fun decodeScreen(value: String?): Screen? = when {
+        value.isNullOrBlank() -> null
+        value == "home" -> Screen.Home
+        value == "overlay" -> Screen.Overlay
+        value == "about" -> Screen.About
+        value == "licenses" -> Screen.Licenses
+        value.startsWith("group:") -> value.removePrefix("group:")
+            .let { name -> ConfigGroup.entries.firstOrNull { it.name == name }?.let(Screen::Group) }
+        else -> null
     }
 
     private fun updateConfig(transform: (OrbConfig) -> OrbConfig) {
@@ -1063,39 +1239,26 @@ internal class NativeSettingsController(
     }
 
     private fun confirmResetGroup(group: ConfigGroup) {
-        MaterialAlertDialogBuilder(activity)
-            .setTitle("恢复本组默认参数？")
-            .setMessage("仅恢复“${group.title()}”中的参数。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("恢复") { _, _ ->
-                requestCurrentPageRefresh()
-                callbacks.resetGroup(group)
-                Toast.makeText(activity, "已恢复本组默认值", Toast.LENGTH_SHORT).show()
-            }
-            .show()
-    }
-
-    private fun confirmResetAll() {
-        MaterialAlertDialogBuilder(activity)
-            .setTitle("恢复全部默认参数？")
-            .setMessage("七组配置都会恢复为默认效果，当前悬浮球状态不会改变。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("恢复") { _, _ ->
-                requestCurrentPageRefresh()
-                callbacks.resetAll()
-                Toast.makeText(activity, "已恢复全部默认参数", Toast.LENGTH_SHORT).show()
-            }
-            .show()
+        GlassAlert.show(
+            activity = activity,
+            palette = palette,
+            title = ui("恢复本组默认参数？"),
+            message = String.format(ui("仅恢复“%s”中的参数。"), ui(group.title())),
+            cancelLabel = ui("取消"),
+            confirmLabel = ui("恢复"),
+            destructive = true,
+        ) {
+            requestCurrentPageRefresh()
+            callbacks.resetGroup(group)
+        }
     }
 
     private fun screenTitle(screen: Screen): String = when (screen) {
-        Screen.Home -> "灵动玻璃球"
-        Screen.Licenses -> "开源许可"
-        Screen.Overlay -> "悬浮球"
+        Screen.Home -> "设置"
+        Screen.Overlay -> "运行与权限"
         is Screen.Group -> screen.group.title()
-        Screen.Presets -> "预设"
-        Screen.Data -> "导入与导出"
         Screen.About -> "关于"
+        Screen.Licenses -> "开源许可与声明"
     }
 
     private fun nativeStatusLabel(status: OverlayRuntimeStatus): String = when (status) {
@@ -1106,41 +1269,26 @@ internal class NativeSettingsController(
         is OverlayRuntimeStatus.Error -> "运行异常"
     }
 
-    private fun formatParameter(value: Float, suffix: String, decimals: Int): String = buildString {
-        append(String.format(Locale.US, "%.${decimals.coerceIn(0, 3)}f", value))
-        if (suffix.isNotEmpty()) append(' ').append(suffix)
-    }
+    private fun ui(source: String): String = text.tr(source)
 
-    private fun divider(parent: LinearLayout) {
-        val line = View(activity).apply { setBackgroundColor(themeColor(android.R.attr.divider)) }
-        parent.addView(line, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 1))
-    }
+    private fun dp(value: Float): Int = activity.dp(value)
 
-    private fun selectableBackground(): android.graphics.drawable.Drawable? {
-        val value = TypedValue()
-        activity.theme.resolveAttribute(android.R.attr.selectableItemBackground, value, true)
-        return if (value.resourceId != 0) ContextCompat.getDrawable(activity, value.resourceId) else ColorDrawable(Color.TRANSPARENT)
-    }
-
-    private fun themeColor(attribute: Int): Int {
-        val value = TypedValue()
-        activity.theme.resolveAttribute(attribute, value, true)
-        return if (value.resourceId != 0) ContextCompat.getColor(activity, value.resourceId) else value.data
-    }
-
-    private fun destructiveColor(): Int = if (isDarkTheme()) Color.rgb(255, 105, 97) else Color.rgb(190, 30, 45)
-
-    private fun isDarkTheme(): Boolean = activity.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
-        android.content.res.Configuration.UI_MODE_NIGHT_YES
-
-    private fun actionBarHeight(): Int {
-        val value = TypedValue()
-        activity.theme.resolveAttribute(android.R.attr.actionBarSize, value, true)
-        return TypedValue.complexToDimensionPixelSize(value.data, activity.resources.displayMetrics)
-            .coerceAtLeast(dp(56f))
-    }
-
-    private fun dp(value: Float): Int = (value * density + 0.5f).roundToInt()
+    private fun dpF(value: Float): Float = activity.dpF(value)
 
     private fun matchWrap() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+    // endregion
+
+    private companion object {
+        const val REFERENCE_REPOSITORY_URL = "https://github.com/cxcboss/glass-voice-orb-study"
+        const val PAGE_NAVIGATION_DURATION_MS = 320L
+        const val PARALLAX = 0.28f
+        const val SEARCH_MARGIN_DP = 6f
+        const val BOTTOM_EDGE_DP = 96f
+        const val MAX_SEARCH_RESULTS = 40
+        const val SAVED_STATE_KEY = "native_settings_state"
+        const val KEY_SCREEN = "screen"
+        const val KEY_SCROLL_Y = "scroll_y"
+        val EASE = PathInterpolator(0.2f, 0f, 0f, 1f)
+    }
 }

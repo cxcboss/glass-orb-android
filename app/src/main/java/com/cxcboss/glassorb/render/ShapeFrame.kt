@@ -2,6 +2,7 @@ package com.cxcboss.glassorb.render
 
 import com.cxcboss.glassorb.overlay.OverlayLayout
 import com.cxcboss.glassorb.overlay.OverlayState
+import kotlin.math.abs
 import kotlin.math.sin
 import kotlin.math.tanh
 
@@ -9,6 +10,7 @@ import kotlin.math.tanh
 internal data class ShapeFrame(
     val morph: Float, val density: Float, val visualScale: Float,
     val shapeWidth: Float, val shapeHeight: Float, val top: Float, val centerX: Float,
+    val glassContentOpacity: Float = 1f,
 ) {
     val centerY get() = top + shapeHeight * 0.5f
 
@@ -38,126 +40,96 @@ internal data class ShapeFrame(
             val directionalReboundPx = snapshot.collapseDirection.coerceIn(-1, 1) *
                 (if (config.geometry.expandBelowCapsule) 6f else 3f) * reboundSignal *
                 (1f + speedFactor * 0.7f)
-            val progress = morph.coerceIn(0f, 1f)
-            val staged = stagedMotion(snapshot, progress, displayDensity)
-            val visualMorph = staged?.morph ?: morph
-            val stageScale = staged?.scale ?: 1f
-            val density = displayDensity * OverlayLayout.renderScale(
-                config.geometry, width, height, displayDensity, visualMorph,
-            )
-            // Once the orb has mostly become a capsule, use the same spring
-            // signal for a soft squeeze: shorter horizontally, taller
-            // vertically, then naturally back to 1x as the spring settles.
-            // Squaring keeps the pulse non-negative while preserving a smooth
-            // zero crossing for the layered rebound oscillation.
-            val capsulePresence = if (snapshot.state == OverlayState.Collapsing) {
-                smoothstep(0.25f, 0.92f, 1f - progress)
+            val collapseProgress = 1f - morph.coerceIn(0f, 1f)
+            val flightGate = smoothstep(0.34f, 0.90f, collapseProgress)
+            val collapseFlightOffsetPx = if (snapshot.state == OverlayState.Collapsing) {
+                snapshot.collapseFlightOffsetPx * flightGate
             } else {
                 0f
             }
-            val springPulse = (reboundSignal * reboundSignal).coerceIn(0f, 1f)
-            val capsuleDeformation = capsulePresence * springPulse
-            val reboundWidthScale = 1f - capsuleDeformation *
-                if (config.geometry.expandBelowCapsule) 0.12f else 0.085f
-            val reboundHeightScale = 1f + capsuleDeformation *
-                if (config.geometry.expandBelowCapsule) 0.20f else 0.14f
-            val expanded = snapshot.state != OverlayState.Collapsed &&
-                snapshot.state != OverlayState.Hidden && snapshot.state != OverlayState.Collapsing
+            val reboundWidthScale = 1f + abs(reboundSignal) *
+                if (config.geometry.expandBelowCapsule) 0.045f else 0.022f
+            val reboundHeightScale = 1f - abs(reboundSignal) *
+                if (config.geometry.expandBelowCapsule) 0.09f else 0.045f
+            val density = displayDensity * OverlayLayout.renderScale(
+                config.geometry, width, height, displayDensity, morph,
+            )
+            val progress = morph.coerceIn(0f, 1f)
+            val glassContentOpacity = GlassCollapseTransition.contentOpacity(
+                state = snapshot.state,
+                rawMorph = morph,
+                visualMorph = morph,
+                stateElapsedSeconds = snapshot.stateElapsedSeconds,
+            )
+            val expanded = snapshot.state != OverlayState.Collapsed && snapshot.state != OverlayState.Hidden
             val breathing = if (expanded) 1f + config.motion.breathingAmplitude *
-                sin(snapshot.timeSeconds * config.motion.breathingSpeed) * visualMorph.coerceIn(0f, 1f) else 1f
+                sin(snapshot.timeSeconds * config.motion.breathingSpeed) * progress else 1f
             val scale = breathing * (1f + (config.motion.pressScale - 1f) * snapshot.pressProgress.coerceIn(0f, 1f))
             val center = width / (2f * density) +
-                snapshot.capsuleCenterOffsetDp * displayDensity / density * (1f - visualMorph) +
+                snapshot.capsuleCenterOffsetDp * displayDensity / density * (1f - progress) +
                 directionalReboundPx / density
-            val preview = ShapeMetrics.interpolate(config.geometry, 0f, center, visualMorph, snapshot.deformation)
+            val preview = ShapeMetrics.interpolate(config.geometry, 0f, center, morph, snapshot.deformation)
             val belowCapsuleTargetPx = config.geometry.capsuleHeightDp * displayDensity +
                 OverlayLayout.EXPAND_BELOW_GAP_PX
-            val dropPx = if (staged == null && config.geometry.expandBelowCapsule) {
+            val dropPx = if (config.geometry.expandBelowCapsule) {
                 belowCapsuleTargetPx * progress * progress * (3f - 2f * progress)
             } else {
                 0f
             }
             val top = if (snapshot.preview) (height / density - preview.heightDp * scale) * 0.5f
                 else (snapshot.capsuleTopOffsetDp * displayDensity + dropPx + reboundOffsetPx) / density
-            val shape = ShapeMetrics.interpolate(config.geometry, top, center, visualMorph, snapshot.deformation)
-            if (staged == null) {
-                return ShapeFrame(visualMorph, density, scale, shape.widthDp * density * scale,
-                    shape.heightDp * density * scale * reboundHeightScale,
-                    shape.topDp * density, shape.centerXDp * density)
-                    .let { frame ->
-                        frame.copy(shapeWidth = frame.shapeWidth * reboundWidthScale)
-                    }
+            val shape = ShapeMetrics.interpolate(config.geometry, top, center, morph, snapshot.deformation)
+            val fullscreenScale = if (snapshot.state == OverlayState.Collapsed) {
+                snapshot.fullscreenCapsuleScale.coerceIn(0.08f, 1.16f)
+            } else {
+                1f
             }
-
-            val stagedHeightDp = shape.heightDp * stageScale * scale * reboundHeightScale
-            val stagedWidthDp = shape.widthDp * stageScale * scale * reboundWidthScale
-            val stagedCenterYDp = staged.centerYDp +
-                if (snapshot.state == OverlayState.Collapsing) reboundOffsetPx / density else 0f
+            val fullscreenOpacity = if (snapshot.state == OverlayState.Collapsed) {
+                snapshot.fullscreenCapsuleOpacity.coerceIn(0f, 1f)
+            } else {
+                1f
+            }
+            val baseHeightPx = shape.heightDp * density * scale
+            val baseWidthPx = shape.widthDp * density * scale * reboundWidthScale
+            val adjustedBaseHeightPx = baseHeightPx * reboundHeightScale
+            val squareProgress = if (snapshot.state == OverlayState.Collapsed) {
+                snapshot.fullscreenCapsuleSquareProgress.coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+            // Fullscreen/landscape hiding first turns the capsule into a
+            // square by compressing only its dominant axis. It then scales
+            // that square down uniformly. Reversing these factors on reveal
+            // avoids the old stretched-rectangle-to-zero effect.
+            val dominantAxisRatio = when {
+                baseWidthPx > adjustedBaseHeightPx ->
+                    (adjustedBaseHeightPx / baseWidthPx).coerceIn(0f, 1f)
+                adjustedBaseHeightPx > baseWidthPx ->
+                    (baseWidthPx / adjustedBaseHeightPx).coerceIn(0f, 1f)
+                else -> 1f
+            }
+            val axisScaleX = if (baseWidthPx > adjustedBaseHeightPx) {
+                lerp(1f, dominantAxisRatio, squareProgress)
+            } else {
+                1f
+            }
+            val axisScaleY = if (adjustedBaseHeightPx > baseWidthPx) {
+                lerp(1f, dominantAxisRatio, squareProgress)
+            } else {
+                1f
+            }
+            val visibleScale = fullscreenScale
+            val finalWidthPx = baseWidthPx * visibleScale * axisScaleX
+            val finalHeightPx = adjustedBaseHeightPx * visibleScale * axisScaleY
             return ShapeFrame(
-                morph = visualMorph,
-                density = density,
-                visualScale = scale,
-                shapeWidth = stagedWidthDp * density,
-                shapeHeight = stagedHeightDp * density,
-                top = (stagedCenterYDp - stagedHeightDp * 0.5f) * density,
-                centerX = shape.centerXDp * density,
+                morph, density, scale,
+                finalWidthPx,
+                finalHeightPx,
+                shape.topDp * density + collapseFlightOffsetPx / density +
+                    (adjustedBaseHeightPx - finalHeightPx) * 0.5f,
+                shape.centerXDp * density,
+                glassContentOpacity * fullscreenOpacity,
             )
-        }
-
-        private data class StagedMotion(
-            val morph: Float,
-            val scale: Float,
-            val centerYDp: Float,
-        )
-
-        private fun stagedMotion(
-            snapshot: RenderSnapshot,
-            progress: Float,
-            displayDensity: Float,
-        ): StagedMotion? {
-            if (snapshot.preview || !snapshot.config.geometry.expandBelowCapsule) return null
-            val capsuleTopDp = snapshot.capsuleTopOffsetDp
-            val capsuleCenterYDp = capsuleTopDp + snapshot.config.geometry.capsuleHeightDp * 0.5f
-            val orbCenterYDp = capsuleTopDp + snapshot.config.geometry.capsuleHeightDp +
-                OverlayLayout.EXPAND_BELOW_GAP_PX / displayDensity +
-                snapshot.config.geometry.orbDiameterDp * 0.5f
-
-            return when (snapshot.state) {
-                OverlayState.Expanding -> when {
-                    progress < EXPAND_POINT_END -> {
-                        val squeeze = smoothstep(0f, EXPAND_POINT_END, progress)
-                        StagedMotion(0f, 1f - squeeze, capsuleCenterYDp)
-                    }
-                    progress < EXPAND_MOVE_END -> {
-                        val move = smoothstep(EXPAND_POINT_END, EXPAND_MOVE_END, progress)
-                        StagedMotion(0f, 0f, lerp(capsuleCenterYDp, orbCenterYDp, move))
-                    }
-                    else -> {
-                        val reveal = smoothstep(EXPAND_MOVE_END, 1f, progress)
-                        StagedMotion(reveal, reveal, orbCenterYDp)
-                    }
-                }
-
-                OverlayState.Collapsing -> {
-                    val closeProgress = 1f - progress
-                    when {
-                        closeProgress < COLLAPSE_POINT_END -> {
-                            val squeeze = smoothstep(0f, COLLAPSE_POINT_END, closeProgress)
-                            StagedMotion(1f, 1f - squeeze, orbCenterYDp)
-                        }
-                        closeProgress < COLLAPSE_MOVE_END -> {
-                            val move = smoothstep(COLLAPSE_POINT_END, COLLAPSE_MOVE_END, closeProgress)
-                            StagedMotion(0f, 0f, lerp(orbCenterYDp, capsuleCenterYDp, move))
-                        }
-                        else -> {
-                            val reveal = smoothstep(COLLAPSE_MOVE_END, 1f, closeProgress)
-                            StagedMotion(0f, reveal, capsuleCenterYDp)
-                        }
-                    }
-                }
-
-                else -> null
-            }
         }
 
         private fun smoothstep(edge0: Float, edge1: Float, value: Float): Float {
@@ -169,9 +141,5 @@ internal data class ShapeFrame(
         private fun lerp(start: Float, end: Float, fraction: Float): Float =
             start + (end - start) * fraction
 
-        private const val EXPAND_POINT_END = 0.30f
-        private const val EXPAND_MOVE_END = 0.56f
-        private const val COLLAPSE_POINT_END = 0.34f
-        private const val COLLAPSE_MOVE_END = 0.62f
     }
 }

@@ -5,21 +5,44 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
+import com.cxcboss.glassorb.BuildConfig
+
+internal fun assistantWindowDisappearanceEvent(
+    reportedPackage: String?,
+    visibleAssistantPackages: Set<String>,
+): SystemAssistantWindowEvent? {
+    if (reportedPackage == null || visibleAssistantPackages.isNotEmpty() ||
+        !SystemAssistantPackages.isSupported(reportedPackage)
+    ) return null
+    return SystemAssistantWindowEvent(
+        packageName = reportedPackage,
+        visible = false,
+        eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+        windowChanges = AccessibilityEvent.WINDOWS_CHANGE_REMOVED,
+    )
+}
 
 /**
  * Minimal trusted-window host for the optional status-bar touch target.
- * No accessibility content, screenshots, gestures, key events, or touch
- * exploration are requested. The XML event filter is limited to this app.
+ * The service opts into interactive-window metadata because Android does not
+ * deliver TYPE_WINDOWS_CHANGED without it. Only root package names are used
+ * to identify an allowlisted system assistant; no text tree, screenshots,
+ * gestures, key events, or touch exploration are requested.
  */
 class GlassOrbAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val delayedWindowRefresh = Runnable { reportCurrentAssistantWindow() }
     private var windowManager: WindowManager? = null
     private var touchView: View? = null
     private var touchParams: WindowManager.LayoutParams? = null
+    private var reportedAssistantPackage: String? = null
+    private var emptyAssistantWindowObservations = 0
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -29,14 +52,52 @@ class GlassOrbAccessibilityService : AccessibilityService() {
             return
         }
         windowManager = manager
-        // Do not call setServiceInfo here. OEM accessibility managers can
-        // treat a runtime event mask of zero as an invalid service and disable
-        // it on the next interaction; the minimal XML filter is authoritative.
+        // Keep the service info in XML. Some OEM accessibility managers treat
+        // a partial runtime replacement as an invalid service and disable it
+        // on the next interaction.
         runCatching { AccessibilityOverlayBridge.connect(this) }
             .onFailure { Log.e(TAG, "Unable to connect trusted touch proxy", it) }
+        // If the service was rebound while the system assistant was already
+        // visible, there may be no new window event to trigger the overlay.
+        reportCurrentAssistantWindow()
     }
 
-    override fun onAccessibilityEvent(event: android.view.accessibility.AccessibilityEvent?) = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val accessibilityEvent = event ?: return
+        when (accessibilityEvent.eventType) {
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                // This event carries the source package for app-controlled
+                // panes. It is the low-cost path and does not query windows.
+                val packageName = accessibilityEvent.packageName?.toString()
+                if (packageName != null && SystemAssistantPackages.isSupported(packageName)) {
+                    reportAssistantWindow(
+                        packageName = packageName,
+                        visible = true,
+                        event = accessibilityEvent,
+                    )
+                }
+            }
+
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                // Some OEM voice-assistant surfaces keep one window alive and
+                // only publish content updates while the conversation is open.
+                // We use the event package only; no node content is read.
+                val packageName = accessibilityEvent.packageName?.toString()
+                if (packageName != null && SystemAssistantPackages.isSupported(packageName)) {
+                    reportAssistantWindow(
+                        packageName = packageName,
+                        visible = true,
+                        event = accessibilityEvent,
+                    )
+                }
+            }
+
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
+                reportWindowSetChanged(accessibilityEvent)
+                scheduleWindowRefreshes()
+            }
+        }
+    }
 
     override fun onInterrupt() = Unit
 
@@ -58,8 +119,125 @@ class GlassOrbAccessibilityService : AccessibilityService() {
         AccessibilityOverlayBridge.disconnect(this)
         removeTouchView()
         windowManager = null
+        reportedAssistantPackage = null
         super.onDestroy()
     }
+
+    private fun scheduleWindowRefreshes() {
+        mainHandler.removeCallbacks(delayedWindowRefresh)
+        mainHandler.post(delayedWindowRefresh)
+        mainHandler.postDelayed(delayedWindowRefresh, 80L)
+        mainHandler.postDelayed(delayedWindowRefresh, 180L)
+        mainHandler.postDelayed(delayedWindowRefresh, 360L)
+    }
+
+    private fun reportWindowSetChanged(event: AccessibilityEvent) {
+        val eventPackage = event.packageName?.toString()
+            ?.takeIf(SystemAssistantPackages::isSupported)
+        val removed = event.windowChanges and AccessibilityEvent.WINDOWS_CHANGE_REMOVED != 0
+
+        val visiblePackages = visibleAssistantPackages() ?: run {
+            // A query failure is an unknown state, never proof that the
+            // assistant disappeared. Keep the last state until a later retry.
+            if (eventPackage != null && !removed) {
+                reportAssistantWindow(eventPackage, visible = true, event = event)
+            }
+            return
+        }
+
+        // Some ROMs expose the package on the event but temporarily return an
+        // empty window list while adding/removing a full-screen overlay.
+        if (eventPackage != null && removed && visiblePackages.isEmpty()) {
+            // The scheduled rechecks below confirm disappearance. A transient
+            // empty getWindows() result during OEM window attachment must not
+            // close a freshly opened assistant overlay.
+            return
+        }
+        if (visiblePackages.isNotEmpty()) {
+            val packageName = eventPackage ?: visiblePackages.first()
+            reportAssistantWindow(packageName, visible = true, event = event)
+            return
+        }
+
+        if (eventPackage != null && !removed) {
+            reportAssistantWindow(eventPackage, visible = true, event = event)
+            return
+        }
+
+        // A removed-window event starts the delayed confirmation below. Do not
+        // turn one transient empty list or an unrelated window change into a
+        // false disappearance after the assistant has already been cleared.
+    }
+
+    private fun reportCurrentAssistantWindow() {
+        val visiblePackages = visibleAssistantPackages() ?: return
+        val packageName = visiblePackages.firstOrNull()
+        if (packageName == null) {
+            // Some Xiaomi builds do not mark the assistant's final window
+            // event as REMOVED. The delayed window recheck is still the
+            // authoritative source, so explicitly turn the last reported
+            // assistant off when the supported window set becomes empty.
+            if (reportedAssistantPackage == null) return
+            emptyAssistantWindowObservations += 1
+            if (emptyAssistantWindowObservations < ASSISTANT_EMPTY_CONFIRMATIONS) return
+            assistantWindowDisappearanceEvent(
+                reportedPackage = reportedAssistantPackage,
+                visibleAssistantPackages = visiblePackages,
+            )?.let { disappearance ->
+                AccessibilityOverlayBridge.notifyAssistantWindowChanged(disappearance)
+                reportedAssistantPackage = null
+                emptyAssistantWindowObservations = 0
+            }
+            return
+        }
+        emptyAssistantWindowObservations = 0
+        AccessibilityOverlayBridge.notifyAssistantWindowChanged(
+            SystemAssistantWindowEvent(
+                packageName = packageName,
+                visible = true,
+                eventType = AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+                windowChanges = 0,
+            ),
+        )
+        reportedAssistantPackage = packageName
+    }
+
+    private fun reportAssistantWindow(
+        packageName: String,
+        visible: Boolean,
+        event: AccessibilityEvent,
+    ) {
+        AccessibilityOverlayBridge.notifyAssistantWindowChanged(
+            SystemAssistantWindowEvent(
+                packageName = packageName,
+                visible = visible,
+                eventType = event.eventType,
+                windowChanges = event.windowChanges,
+            ),
+        )
+        reportedAssistantPackage = if (visible) packageName else null
+        emptyAssistantWindowObservations = 0
+    }
+
+    /**
+     * TYPE_WINDOWS_CHANGED may have no useful event package on OEM builds.
+     * The official window list lets us resolve the source window by its root
+     * package without reading any node text or traversing the hierarchy.
+     */
+    private fun visibleAssistantPackages(): Set<String>? = runCatching {
+        visibleWindowPackages()
+            .filter(SystemAssistantPackages::isSupported)
+            .toSet()
+    }.onFailure {
+        if (BuildConfig.DEBUG) Log.d(TAG, "Unable to query interactive windows", it)
+    }.getOrNull()
+
+    private fun visibleWindowPackages(): Set<String> = getWindows()
+            .asSequence()
+            .mapNotNull { window ->
+                runCatching { window.root?.packageName?.toString() }.getOrNull()
+            }
+            .toSet()
 
     private fun updateTouchBoundsNow(bounds: IntRect?) {
         val manager = windowManager ?: return
@@ -111,13 +289,23 @@ class GlassOrbAccessibilityService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         PixelFormat.TRANSLUCENT,
     ).apply {
-        gravity = Gravity.TOP or Gravity.START
+        // This is a physical-screen rectangle supplied by the controller.
+        // START would reinterpret x after a rotated RTL configuration.
+        gravity = Gravity.TOP or Gravity.LEFT
         x = bounds.left
         y = bounds.top
+        OverlayRefreshRatePolicy.apply(this, this@GlassOrbAccessibilityService)
         title = "Glass orb trusted touch proxy"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            setFitInsetsTypes(0)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        }
     }
 
     private companion object {
         const val TAG = "GlassOrbAccessibility"
+        const val ASSISTANT_EMPTY_CONFIRMATIONS = 2
     }
 }

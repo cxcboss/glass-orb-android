@@ -1,7 +1,5 @@
 package com.cxcboss.glassorb.model
 
-import kotlin.math.max
-
 enum class HorizontalAnchor {
     Center,
     Left,
@@ -11,7 +9,10 @@ enum class HorizontalAnchor {
 data class GeometryConfig(
     val capsuleWidthDp: Float = 118f,
     val capsuleHeightDp: Float = 34f,
+    /** Legacy base size retained while migrating older persisted configurations. */
     val orbDiameterDp: Float = 128f,
+    val orbWidthDp: Float = 128f,
+    val orbHeightDp: Float = 128f,
     val outerMarginDp: Float = 20f,
     val effectScale: Float = 1.18f,
     val verticalOffsetDp: Float = 8f,
@@ -20,6 +21,8 @@ data class GeometryConfig(
     val enlargedTouchArea: Boolean = false,
     val touchAreaScale: Float = 1.35f,
     val expandBelowCapsule: Boolean = false,
+    val hideWhenStatusBarHidden: Boolean = true,
+    val hideWhenLandscape: Boolean = false,
 )
 
 data class GlassConfig(
@@ -33,13 +36,28 @@ data class GlassConfig(
     val shadowOffset: Float = 0.3f,
     val causticOffset: Float = -1f,
     val lightSoftness: Float = 4.2f,
+    /** Adds a hue rotation to the live wave/dot palette and the caustics. */
+    val internalHueDegrees: Float = 0f,
+    /** Hue used by the non-white upper highlight lobe. */
+    val upperHighlightHueDegrees: Float = 210f,
+    /** Amount of the colored upper highlight, independent of highlight geometry. */
+    val upperHighlightAmount: Float = 0.85f,
 )
 
 data class ContainerConfig(
     val strength: Float = 2f,
     val fade: Float = 1f,
     val gaussian: Float = 8f,
-    val backgroundDimEnabled: Boolean = true,
+    /** A black-to-transparent lower layer; this treatment never adds blur. */
+    val backgroundDimEnabled: Boolean = false,
+    val backgroundDimPercent: Float = 28f,
+    /** A top-to-bottom blur beneath the expanded glass ball. */
+    val backgroundAmbientBlurEnabled: Boolean = false,
+    val backgroundAmbientBlurPercent: Float = 10f,
+    /** Local blur within the glass-ball silhouette. */
+    val backgroundBlurEnabled: Boolean = false,
+    /** User-facing glass-ball blur amount. The platform radius is 0..100%. */
+    val backgroundBlurPercent: Float = 12f,
 )
 
 data class WaveConfig(
@@ -108,6 +126,8 @@ data class OrbConfig(
                 capsuleWidthDp = geometry.capsuleWidthDp.safeRange(0f, 220f, defaults.geometry.capsuleWidthDp),
                 capsuleHeightDp = geometry.capsuleHeightDp.safeRange(0f, 64f, defaults.geometry.capsuleHeightDp),
                 orbDiameterDp = geometry.orbDiameterDp.safeRange(88f, 220f, defaults.geometry.orbDiameterDp),
+                orbWidthDp = geometry.orbWidthDp.safeRange(88f, 260f, defaults.geometry.orbWidthDp),
+                orbHeightDp = geometry.orbHeightDp.safeRange(88f, 260f, defaults.geometry.orbHeightDp),
                 outerMarginDp = geometry.outerMarginDp.safeRange(8f, 48f, defaults.geometry.outerMarginDp),
                 effectScale = geometry.effectScale.safeRange(0.9f, 1.5f, defaults.geometry.effectScale),
                 // Stored in dp for backwards-compatible JSON, while the
@@ -130,11 +150,36 @@ data class OrbConfig(
                 shadowOffset = glass.shadowOffset.safeRange(-3f, 3f, defaults.glass.shadowOffset),
                 causticOffset = glass.causticOffset.safeRange(-4f, 4f, defaults.glass.causticOffset),
                 lightSoftness = glass.lightSoftness.safeRange(0.5f, 10f, defaults.glass.lightSoftness),
+                internalHueDegrees = glass.internalHueDegrees.safeRange(0f, 360f, defaults.glass.internalHueDegrees),
+                upperHighlightHueDegrees = glass.upperHighlightHueDegrees.safeRange(0f, 360f, defaults.glass.upperHighlightHueDegrees),
+                upperHighlightAmount = glass.upperHighlightAmount.safeRange(0f, 2f, defaults.glass.upperHighlightAmount),
             ),
             container = container.copy(
                 strength = container.strength.safeRange(0f, 4f, defaults.container.strength),
                 fade = container.fade.safeRange(0f, 2f, defaults.container.fade),
                 gaussian = container.gaussian.safeRange(0.5f, 16f, defaults.container.gaussian),
+                // The two blur treatments both use compositor blur and must
+                // never be active together. Dimming is an independent black
+                // gradient and can be combined with either blur treatment.
+                backgroundAmbientBlurEnabled =
+                    container.backgroundAmbientBlurEnabled && !container.backgroundBlurEnabled,
+                backgroundBlurEnabled =
+                    container.backgroundBlurEnabled && !container.backgroundAmbientBlurEnabled,
+                backgroundDimPercent = container.backgroundDimPercent.safeRange(
+                    0f,
+                    60f,
+                    defaults.container.backgroundDimPercent,
+                ),
+                backgroundAmbientBlurPercent = container.backgroundAmbientBlurPercent.safeRange(
+                    0f,
+                    100f,
+                    defaults.container.backgroundAmbientBlurPercent,
+                ),
+                backgroundBlurPercent = container.backgroundBlurPercent.safeRange(
+                    0f,
+                    100f,
+                    defaults.container.backgroundBlurPercent,
+                ),
             ),
             wave = wave.copy(
                 amplitude = wave.amplitude.safeRange(0f, 0.6f, defaults.wave.amplitude),
@@ -186,15 +231,18 @@ data class OrbConfig(
                 autoCollapseSeconds = motion.autoCollapseSeconds.safeRange(1f, 60f, defaults.motion.autoCollapseSeconds),
             ),
             performance = performance.copy(
-                collapsedFps = performance.collapsedFps.coerceIn(24, 120),
-                expandedFps = max(performance.collapsedFps.coerceIn(24, 120), performance.expandedFps.coerceIn(24, 120)),
+                collapsedFps = performance.collapsedFps.coerceIn(24, 240),
+                // The glass-ball rate is independently configurable. The
+                // controller still clamps it to the physical display rate;
+                // do not force it to follow the capsule rate here.
+                expandedFps = performance.expandedFps.coerceIn(24, 240),
                 renderScale = performance.renderScale.safeRange(0.5f, 1.25f, defaults.performance.renderScale),
             ),
         )
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 1
+        const val CURRENT_SCHEMA_VERSION = 3
         private const val LEGACY_CLOSE_RESPONSE = 0.26f
         private const val LEGACY_CLOSE_DAMPING = 0.76f
 

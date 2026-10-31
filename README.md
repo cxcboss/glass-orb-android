@@ -1,43 +1,46 @@
 # 灵动玻璃球
 
-原生 Android 设置界面与 OpenGL ES 3.0 悬浮玻璃球。
+一个原生 Android 悬浮灵动岛与 OpenGL ES 3.0 玻璃球效果实验。项目当前以免费、非商业侧载应用的形式维护。
 
-## 2.0.11 · 构建 19
+## 当前版本
 
-- 设置首页重新分类；各级页面统一浅色、深色模块样式。关于与许可集中收纳，不在首页展示详情。
-- 二级返回接入 Android 预测性返回的开始、进度、取消和完成回调；首页保留系统返回行为。
-- 背景从顶部约 28% 黑色渐变至透明，展开、上滑收起与自动收起继续淡入淡出，并与展开动画同步节奏。
-- 新增默认关闭的“向下展开”：胶囊位置保持不变，球体顶部从胶囊底部留出 20 个物理像素后展开。
-- 胶囊宽高允许 0，触控入口最小为 38 × 38 dp。倍率滑杆随开关立即启用或禁用，不重建设置页。
-- 展开后的输入区域随球体大小及形变更新，球体外不拦截下层内容。保持单层 GL 渲染和固定动画画布。
-- 球体暗部强度范围扩展至 0..4，默认值为 2，0 为透明，增强后暗部可达到不透明纯黑；左上滑和右上滑均可收起，并按方向和速度产生不同回弹形变。形变回弹反应默认值为 0.8 秒，收起时胶囊会先横向压缩、纵向增高再恢复。
-- 开启“向下展开”后，展开/收起采用点位过渡：胶囊或球体先收缩到中心点，再移动到另一端，最后从中心舒缓展开。
-- 收起过程中冻结波形、圆点和离屏玻璃场景，只保留轻量形状动画，降低卡顿和帧率抖动。
-- 使用提供的前景、背景资源作为自适应图标，包含圆形与单色图标入口。
+- 版本：`2.0.29`（`versionCode 39`）
+- 包名：`com.cxcboss.glassorb`
+- 系统：Android 10（API 29）及以上
+- 图形：OpenGL ES 3.0
+- 安装包：[GitHub Releases · v2.0.29](https://github.com/cxcboss/glass-orb-android/releases/tag/v2.0.29)（`glass-orb-android-2.0.29.apk`，Debug 签名，约 10 MB）
 
-## 安装与权限
+当前实现包含：
 
-从 [GitHub Releases](https://github.com/cxcboss/glass-orb-android/releases/latest) 下载 **glass-orb-android-2.0.11.apk**；Android 10 / API 29 及以上、GLES 3.0。
-包名 `com.cxcboss.glassorb` 保持不变，versionName=2.0.11，versionCode=19。
+- 固定在真实手机顶部中央语义的灵动岛，支持四个物理旋转方向。
+- 点击展开、拖动形变、上滑收起、自动收起和全屏隐藏/恢复动画。
+- 活跃动画期间请求 120 Hz；稳定灵动岛状态停止持续渲染以降低功耗。
+- “下层模糊”“下层变暗”“玻璃球模糊”三套独立背景效果；两种模糊互斥。
+- 复刻 iOS 26“设置”的设置界面：分组列表、二级页头卡、底部玻璃搜索（可搜到每一项设置）、长按恢复默认的玻璃菜单；液态玻璃在 API 33+ 带边缘镜头，31–32 为模糊，更低自动降级；纯平台 View，无 Material/Compose；跟随系统切换中文或英文。
+- 可选无障碍服务，用于精确触控区域和白名单系统助手窗口联动。
 
-在“运行与权限”中允许悬浮权限；如果需要状态栏区域触控，再主动开启“灵动玻璃球状态栏触控”无障碍服务。服务仅承载可信触控窗口，不读取屏幕内容、获取输入文字或模拟手势。国产 ROM 如有电池优化或自启动管理，请将本应用设为允许。旧配置保留，新选项缺失时使用默认值。
+## 构建
 
-触控区域使用 WindowManager 输入区域接口；该接口没有公开等价 API，设备不支持时会明确报错并撤下窗口。系统安全界面和不同厂商的悬浮策略仍需以目标设备表现为准。
-
-## 构建与交付
-
-本次按要求只编译打包，未运行单元测试、界面测试、模拟器或真机测试。
+需要 JDK 17 和 Android SDK 37。首次使用请由 Android Studio 生成 `local.properties`，或写入本机 SDK 路径。
 
 ```sh
-./gradlew assembleDebug --offline --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
+./gradlew testDebugUnitTest lintDebug compileDebugAndroidTestKotlin assembleDebug \
+  --no-daemon --project-cache-dir /tmp/glass-orb-gradle-project-cache
 ```
 
-构建目录重定向至 Java 临时目录下的 glass-orb-android-build/app。交付包使用现有 debug 签名，可供本机覆盖安装，不是商店发布签名包。交互、动画及厂商兼容性由用户在设备上确认。
+本项目把 Gradle 构建目录重定向到了系统临时目录，不能以 `app/build/outputs` 判断最新产物。完整构建、核验和发包方法见 [构建与发布](docs/BUILD_AND_RELEASE.md)。
 
-## 参考与许可
+## 文档
 
-效果参考：[glass-voice-orb-study](https://github.com/cxcboss/glass-voice-orb-study)，固定提交 `3d7e98199b385358df6ddf65a9d20644754f22eb`；[在线演示](https://zq52xy.github.io/glass-voice-orb-study/)。归属和非商业要求见 `NOTICE.md`、`LICENSE`。
+- [项目架构](docs/ARCHITECTURE.md)：模块、窗口层级、渲染与配置数据流。
+- [已知问题](docs/KNOWN_ISSUES.md)：厂商高刷新、系统模糊、权限和发布限制。
+- [对接文档](docs/HANDOFF.md)：**先读这个**——基线、代码地图、对内接口、修改配方、约束与交付检查表。
+- [设置页设计说明](docs/SETTINGS_UI.md)：iOS 26 风格与液态玻璃的实现、组件与取舍。
+- [审计与改进计划](docs/AUDIT.md)：缺陷、性能项和路线图。
+- [更新日志](docs/CHANGELOG.md)。
+- [仓库与目录管理](docs/REPOSITORY.md)：目录说明、清理脚本、分支/远程与发版约定。
+- [构建与发布](docs/BUILD_AND_RELEASE.md)：构建、签名、版本与 APK 核验流程。
 
-项目保留 Apache-2.0 的 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 来源及归属说明，固定提交 `65ab177e90e5c1d8c62e70cf7755841982da65f6`；设置页采用平台原生控件，玻璃球渲染核心保持独立。具体许可见 `THIRD_PARTY_NOTICES.md`。
+## 许可与来源
 
-参考仓库只在临时目录分析，没有修改或提交；`tools/port-reference-shaders.mjs <参考目录>` 可重现固定提交 shader 的机械移植。
+玻璃效果与动画参考仓库受非商业学习许可约束，本项目不能据此直接用于商业发行。请保留 [LICENSE](LICENSE)、[NOTICE.md](NOTICE.md)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 及应用内声明；具体固定参考提交和第三方来源见这些文件。
